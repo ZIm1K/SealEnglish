@@ -47,7 +47,8 @@ function Inner() {
     const g = params.get("google");
     if (g && GOOGLE_MESSAGES[g]) {
       const [msg, kind] = GOOGLE_MESSAGES[g];
-      (kind === "success" ? toast.success : toast.error)(msg);
+      const reason = params.get("reason");
+      (kind === "success" ? toast.success : toast.error)(msg, reason ? { description: reason, duration: 20_000 } : undefined);
       router.replace("/app/settings/integrations/");
     }
   }, [params, router]);

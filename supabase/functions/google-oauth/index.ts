@@ -16,7 +16,8 @@ function redirect(url: string): Response {
 
 async function callback(url: URL): Promise<Response> {
   const site = await siteUrl();
-  const back = (status: string) => redirect(`${site}/app/settings/integrations/?google=${status}`);
+  const back = (status: string, reason?: string) =>
+    redirect(`${site}/app/settings/integrations/?google=${status}${reason ? `&reason=${encodeURIComponent(reason.slice(0, 200))}` : ""}`);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
   if (url.searchParams.get("error") || !code || !state) return back("denied");
@@ -40,10 +41,11 @@ async function callback(url: URL): Promise<Response> {
     }),
   });
   const tokens = await res.json();
-  if (!res.ok || !tokens.refresh_token) {
+  if (!res.ok) {
     console.error("google token exchange failed", tokens);
-    return back(tokens.refresh_token ? "error" : "no_refresh");
+    return back("error", [tokens.error, tokens.error_description].filter(Boolean).join(": ") || `HTTP ${res.status}`);
   }
+  if (!tokens.refresh_token) return back("no_refresh");
 
   let email: string | null = null;
   try {
