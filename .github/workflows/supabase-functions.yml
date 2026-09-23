@@ -1,9 +1,9 @@
 name: Deploy Supabase Edge Functions
 
+# Manual only: functions are deployed from the dev machine (Supabase CLI / MCP).
+# To deploy automatically on push again, add back:
+#   push: { branches: [main], paths: ["supabase/functions/**"] }
 on:
-  push:
-    branches: [main]
-    paths: ["supabase/functions/**"]
   workflow_dispatch:
 
 jobs:
