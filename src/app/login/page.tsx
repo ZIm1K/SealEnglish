@@ -66,7 +66,7 @@ export default function LoginPage() {
       look={look}
     >
       <form onSubmit={submit} className="grid gap-5">
-        <Field label="Email" htmlFor="email">
+        <Field label="Логін (email)" htmlFor="email" hint={mode === "login" ? "ваш логін — це ваша пошта" : undefined}>
           <Input
             id="email"
             type="email"

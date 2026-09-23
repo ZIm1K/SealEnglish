@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/overlay";
 
 export function CredentialsDialog({ data, onClose }: { data: { email: string; password: string; name: string } | null; onClose: () => void }) {
-  const text = data ? `Seal English — доступ до кабінету\n${typeof window !== "undefined" ? window.location.origin : ""}/login/\nЛогін: ${data.email}\nПароль: ${data.password}` : "";
+  const text = data ? `Seal English — доступ до кабінету\n${typeof window !== "undefined" ? window.location.origin : ""}/login/\nЛогін (email): ${data.email}\nПароль: ${data.password}` : "";
   return (
     <Dialog open={!!data} onOpenChange={(v) => !v && onClose()}>
       {data && (
