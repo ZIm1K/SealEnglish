@@ -8,8 +8,8 @@ export const SITE = {
   url: process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.sealenglish.school",
   description:
     "Онлайн-школа англійської для підлітків 12–18, дітей і дорослих. Живі уроки в Google Meet, особистий кабінет з домашкою та розкладом, нагадування в Telegram. Перший урок — безкоштовно.",
-  email: "hello@sealenglish.com.ua",
-  phone: "+380 00 000 00 00",
+  email: "support@sealenglish.school",
+  phone: "+380 67 645 75 66",
   telegramBot: process.env.NEXT_PUBLIC_TELEGRAM_BOT || "",
   instagram: "",
   city: "Україна · онлайн",

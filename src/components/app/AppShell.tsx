@@ -116,7 +116,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="min-h-svh bg-canvas lg:grid lg:grid-cols-[17rem_1fr]">
       {/* sidebar */}
       <aside className="sticky top-0 hidden h-svh flex-col border-r border-line bg-seal-50/60 p-4 lg:flex">
-        <div className="px-2 py-2"><Logo href="/app/" /></div>
+        <div className="px-2 py-2"><Logo href="/" /></div>
         <div className="mt-6 flex-1 overflow-y-auto">{nav}</div>
         <SidebarMascot role={profile.role} />
       </aside>
@@ -134,7 +134,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               className="absolute inset-y-0 left-0 flex w-[82%] max-w-xs flex-col bg-seal-50 p-4 shadow-lift"
             >
               <div className="flex items-center justify-between px-2 py-2">
-                <Logo href="/app/" />
+                <Logo href="/" />
                 <button onClick={() => setMobileOpen(false)} className="flex size-9 items-center justify-center rounded-xl hover:bg-white" aria-label="Закрити меню">
                   <X className="size-5" />
                 </button>

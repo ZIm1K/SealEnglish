@@ -244,7 +244,7 @@ function SiteBlock({ st, onChange }: { st: Status; onChange: () => void }) {
     <Card>
       <CardHeader title={<span className="flex items-center gap-2"><Globe className="size-5 text-seal-600" /> Адреса сайту</span>} description="Використовується в посиланнях з Telegram і після підключення Google" />
       <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="grid gap-3 p-5 sm:grid-cols-[1fr_auto] sm:items-end sm:p-6">
-        <Field label="URL"><Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://sealenglish.com.ua" /></Field>
+        <Field label="URL"><Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://www.sealenglish.school" /></Field>
         <Button type="submit" loading={save.isPending}>Зберегти</Button>
         {mismatch && (
           <button type="button" onClick={() => setUrl(window.location.origin)} className="flex cursor-pointer items-center gap-2 text-left text-sm text-coral-700 sm:col-span-2">
