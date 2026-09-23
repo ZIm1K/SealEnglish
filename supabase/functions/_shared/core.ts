@@ -92,7 +92,7 @@ export async function setSetting(key: string, value: unknown, isPublic?: boolean
 }
 
 export async function siteUrl(): Promise<string> {
-  return ((await getSetting<string>("site_url")) ?? "https://sealenglish.wasmer.app").replace(/\/$/, "");
+  return ((await getSetting<string>("site_url")) ?? "https://www.sealenglish.school").replace(/\/$/, "");
 }
 
 export function functionsUrl(): string {

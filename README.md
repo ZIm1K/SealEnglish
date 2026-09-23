@@ -30,7 +30,7 @@
 ## Перший запуск — чекліст
 
 1. **Supabase → Authentication → URL Configuration**
-   - Site URL: адреса сайту на Wasmer (наприклад, `https://sealenglish.wasmer.app`)
+   - Site URL: адреса сайту (`https://www.sealenglish.school`)
    - Redirect URLs: `https://<ваш-домен>/**` і `http://localhost:3000/**`
 2. Відкрийте **`/setup`** і створіть акаунт адміністратора. Сторінка працює лише доки в школі немає жодного адміна.
 3. Після цього в **Authentication → Sign In / Providers → Email** вимкніть «Allow new users to sign up»: акаунти створює менеджер у кабінеті.

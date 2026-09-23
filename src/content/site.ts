@@ -5,7 +5,7 @@
 export const SITE = {
   name: "Seal English",
   mascot: "Сілі",
-  url: process.env.NEXT_PUBLIC_SITE_URL ?? "https://sealenglish.wasmer.app",
+  url: process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.sealenglish.school",
   description:
     "Онлайн-школа англійської для підлітків 12–18, дітей і дорослих. Живі уроки в Google Meet, особистий кабінет з домашкою та розкладом, нагадування в Telegram. Перший урок — безкоштовно.",
   email: "hello@sealenglish.com.ua",
