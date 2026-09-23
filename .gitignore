@@ -1,0 +1,18 @@
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+.env*.local
+.DS_Store
+Thumbs.db
+npm-debug.log*
+supabase/.temp/
+supabase/.branches/
+design/**/*.npy
+
+# local tooling / generated previews
+.claude/
+design/mascot/out/
+__pycache__/
+*.pyc

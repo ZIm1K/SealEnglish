@@ -1,0 +1,15 @@
+{
+  "name": "Seal English",
+  "short_name": "Seal English",
+  "description": "Онлайн-школа англійської: розклад, уроки в Google Meet, домашні завдання",
+  "start_url": "/app/",
+  "display": "standalone",
+  "background_color": "#f5f9ff",
+  "theme_color": "#0a2142",
+  "lang": "uk",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -1,0 +1,22 @@
+# Supabase CLI config (used by `supabase functions deploy` / CI).
+project_id = "nivxzpsstjphxkodhjzu"
+
+# All functions authenticate requests themselves (user JWT, Telegram secret header,
+# internal DB secret or Google OAuth state), so gateway JWT verification is off.
+[functions.lead]
+verify_jwt = false
+
+[functions.telegram]
+verify_jwt = false
+
+[functions.notify]
+verify_jwt = false
+
+[functions.schedule]
+verify_jwt = false
+
+[functions.admin]
+verify_jwt = false
+
+[functions.google-oauth]
+verify_jwt = false

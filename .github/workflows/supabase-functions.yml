@@ -1,0 +1,25 @@
+name: Deploy Supabase Edge Functions
+
+on:
+  push:
+    branches: [main]
+    paths: ["supabase/functions/**"]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Skip when the access token is not configured
+        if: env.SUPABASE_ACCESS_TOKEN == ''
+        run: echo "Add SUPABASE_ACCESS_TOKEN to repository secrets to enable automatic function deploys."
+      - uses: supabase/setup-cli@v1
+        if: env.SUPABASE_ACCESS_TOKEN != ''
+        with:
+          version: latest
+      - name: Deploy functions
+        if: env.SUPABASE_ACCESS_TOKEN != ''
+        run: supabase functions deploy --project-ref nivxzpsstjphxkodhjzu
