@@ -79,7 +79,7 @@ def svg(show_face=True):
     <ellipse cx="432.9" cy="469.6" rx="21" ry="20" fill="{C['cheek']}"/>
     <ellipse cx="690.7" cy="408" rx="21" ry="20" fill="{C['cheek']}"/>
     <path d="{P['browL']}" fill="{C['navy']}"/><path d="{P['browR']}" fill="{C['navy']}"/>
-    <path d="{P['mouth']}" fill="{C['navy']}"/><path d="{P['tongue']}" fill="{C['coral']}"/>
+
     <path d="{P['nose']}" fill="{C['navy']}"/>
     <path d="{P['whiskersL']}" fill="{C['navy']}"/><path d="{P['whiskersR']}" fill="{C['navy']}"/>
     """

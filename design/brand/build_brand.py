@@ -27,6 +27,9 @@ geo = json.loads(
     re.search(r"export const SEAL = (\{.*\}) as const;", (ROOT / "src/components/mascot/seal-geometry.ts").read_text(encoding="utf-8"), re.S).group(1)
 )
 P, C = geo["paths"], geo["palette"]
+FACE = json.loads(
+    re.search(r"export const FACE = (\{.*\}) as const;", (ROOT / "src/components/mascot/seal-face.ts").read_text(encoding="utf-8"), re.S).group(1)
+)
 
 OCEAN_900, OCEAN_800, SEAL_700 = "#0a2142", "#0f2f5c", "#2f69ad"
 SEAL_600, SEAL_300 = "#4f8acb", "#a9d0f7"
@@ -92,7 +95,7 @@ def seal_head() -> str:
         f'<ellipse cx="432.9" cy="469.6" rx="21" ry="20" fill="{C["cheek"]}"/><ellipse cx="690.7" cy="408" rx="21" ry="20" fill="{C["cheek"]}"/>'
         f"{pupils}"
         f'<path d="{P["browL"]}" fill="{C["navy"]}"/><path d="{P["browR"]}" fill="{C["navy"]}"/>'
-        f'<path d="{P["mouth"]}" fill="{C["navy"]}"/><path d="{P["tongue"]}" fill="{C["coral"]}"/><path d="{P["nose"]}" fill="{C["navy"]}"/>'
+        f'<path d="{FACE["open"]["navy"]}" fill="{C["navy"]}"/><path d="{FACE["open"]["coral"]}" fill="{C["coral"]}"/><path d="{P["nose"]}" fill="{C["navy"]}"/>'
         f'<path d="{P["whiskersL"]}" fill="{C["navy"]}"/><path d="{P["whiskersR"]}" fill="{C["navy"]}"/>'
     )
 

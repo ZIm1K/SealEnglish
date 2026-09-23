@@ -13,6 +13,7 @@ import {
 import { useEffect, useId, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { SEAL } from "./seal-geometry";
+import { FACE } from "./seal-face";
 
 /**
  * Сілі — the Seal English mascot.
@@ -53,7 +54,7 @@ const VIEW: Record<NonNullable<SealProps["crop"]>, string> = {
 };
 
 type EyeShape = "open" | "wide" | "happy" | "closed";
-type MouthShape = "open" | "smile" | "grin" | "o" | "sad" | "flat";
+type MouthShape = keyof Pick<typeof FACE, "open" | "grin" | "smile" | "smallSmile" | "o" | "sad" | "flat">;
 
 interface Expression {
   eyes: [EyeShape, EyeShape];
@@ -66,7 +67,7 @@ interface Expression {
 
 const EXPRESSIONS: Record<SealEmotion, Expression> = {
   happy: { eyes: ["open", "open"], mouth: "open", brow: 0, browTilt: 0, blush: 1 },
-  neutral: { eyes: ["open", "open"], mouth: "smile", brow: 0, browTilt: 0, blush: 0.85 },
+  neutral: { eyes: ["open", "open"], mouth: "smallSmile", brow: 0, browTilt: 0, blush: 0.85 },
   joy: { eyes: ["happy", "happy"], mouth: "grin", brow: -6, browTilt: 0, blush: 1.2 },
   surprised: { eyes: ["wide", "wide"], mouth: "o", brow: -14, browTilt: 0, blush: 0.9 },
   sad: { eyes: ["open", "open"], mouth: "sad", brow: 4, browTilt: 14, blush: 0.6, gazeY: 0.7 },
@@ -81,7 +82,6 @@ const EYES = [
   { cx: 650.9, cy: 352.7, rot: -7.4, rx: 41, ry: 45.7, idx: -8, idy: 4, hx: -22.7, hy: -10.8 },
 ] as const;
 const IRIS = { rx: 36.5, ry: 42 };
-const HEAD_TILT = -12; // the face in the artwork is tilted; mouth primitives follow it
 
 const rotAbout = (px: number, py: number) => (deg: number) => `rotate(${deg.toFixed(3)} ${px} ${py})`;
 
@@ -303,7 +303,7 @@ export function Seal({
               <Eye key={i} idx={i} uid={uid} shape={expr.eyes[i]} gazeX={gazeX} gazeY={gazeY} blink={blink} />
             ))}
             <Brows offset={expr.brow} tilt={expr.browTilt} />
-            <Mouth shape={expr.mouth} uid={uid} />
+            <Mouth shape={expr.mouth} />
             <path d={P.nose} fill={C.navy} />
             <motion.g transform={whiskLT}>
               <path d={P.whiskersL} fill={C.navy} />
@@ -342,22 +342,16 @@ function Eye({
   const clip = `seal-sc-${uid}-${idx}`;
   const irisClip = `seal-ir-${uid}-${idx}`;
 
-  // closed shapes: ^ (happy) or ‿ (asleep), drawn in the eye's tilted frame
-  const arc = shape === "happy"
-    ? `M${e.cx - 31} ${e.cy + 10} Q${e.cx} ${e.cy - 30} ${e.cx + 31} ${e.cy + 10}`
-    : `M${e.cx - 30} ${e.cy + 2} Q${e.cx} ${e.cy + 22} ${e.cx + 30} ${e.cy + 2}`;
+  // closed shapes (^ happy, ‿ asleep) are the vectorised elements from the parts sheet
+  const arc = (shape === "happy" ? FACE[idx === 0 ? "eyeHappy0" : "eyeHappy1"] : FACE[idx === 0 ? "eyeClosed0" : "eyeClosed1"]).navy;
 
   return (
-    <AnimatePresence initial={false} mode="popLayout">
+    <AnimatePresence initial={false}>
       {shape === "happy" || shape === "closed" ? (
         <motion.path
-          key="arc"
+          key={shape}
           d={arc}
-          transform={rot}
-          fill="none"
-          stroke={C.navy}
-          strokeWidth={8}
-          strokeLinecap="round"
+          fill={C.navy}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -443,78 +437,15 @@ function Cheeks({ blush }: { blush: number }) {
   );
 }
 
-// Mouth primitives live in the face's tilted frame, centred under the nose.
-const MX = 562;
-const MY = 448;
-const mouthFrame = `rotate(${HEAD_TILT} ${MX} ${MY})`;
-
-function Mouth({ shape, uid }: { shape: MouthShape; uid: string }) {
-  const grinClip = `seal-grin-${uid}`;
-  const stroke = { fill: "none", stroke: C.navy, strokeWidth: 6.5, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
-  let node: React.ReactNode;
-  switch (shape) {
-    case "open":
-      node = (
-        <>
-          <path d={P.mouth} fill={C.navy} />
-          <path d={P.tongue} fill={C.coral} />
-        </>
-      );
-      break;
-    case "smile":
-      node = (
-        <g transform={mouthFrame}>
-          <path d={`M${MX - 46} ${MY - 12} Q${MX - 24} ${MY + 14} ${MX - 1} ${MY - 6} Q${MX + 22} ${MY + 14} ${MX + 45} ${MY - 13}`} {...stroke} />
-        </g>
-      );
-      break;
-    case "grin":
-      node = (
-        <g transform={mouthFrame}>
-          <path d={`M${MX - 36} ${MY - 8} Q${MX} ${MY + 6} ${MX + 36} ${MY - 8} Q${MX + 30} ${MY + 38} ${MX} ${MY + 40} Q${MX - 30} ${MY + 38} ${MX - 36} ${MY - 8} Z`} fill={C.navy} />
-          <clipPath id={grinClip}>
-            <path d={`M${MX - 36} ${MY - 8} Q${MX} ${MY + 6} ${MX + 36} ${MY - 8} Q${MX + 30} ${MY + 38} ${MX} ${MY + 40} Q${MX - 30} ${MY + 38} ${MX - 36} ${MY - 8} Z`} />
-          </clipPath>
-          <ellipse cx={MX + 2} cy={MY + 36} rx={20} ry={13} fill={C.coral} clipPath={`url(#${grinClip})`} />
-          <path d={`M${MX - 48} ${MY - 14} Q${MX - 42} ${MY - 8} ${MX - 36} ${MY - 8}`} {...stroke} strokeWidth={5.5} />
-          <path d={`M${MX + 48} ${MY - 14} Q${MX + 42} ${MY - 8} ${MX + 36} ${MY - 8}`} {...stroke} strokeWidth={5.5} />
-        </g>
-      );
-      break;
-    case "o":
-      node = (
-        <g transform={mouthFrame}>
-          <ellipse cx={MX} cy={MY + 16} rx={15} ry={19} fill={C.navy} />
-          <ellipse cx={MX} cy={MY + 27} rx={9} ry={6} fill={C.coral} />
-        </g>
-      );
-      break;
-    case "sad":
-      node = (
-        <g transform={mouthFrame}>
-          <path d={`M${MX - 22} ${MY + 18} Q${MX} ${MY - 2} ${MX + 22} ${MY + 18}`} {...stroke} />
-        </g>
-      );
-      break;
-    case "flat":
-      node = (
-        <g transform={mouthFrame}>
-          <path d={`M${MX - 16} ${MY + 6} Q${MX} ${MY + 13} ${MX + 16} ${MY + 6}`} {...stroke} />
-        </g>
-      );
-      break;
-  }
+// Mouths are the vectorised elements from the parts sheet (see design/mascot/build_face_parts.py),
+// already placed on the face with the head's tilt. Emotions cross-fade between them.
+function Mouth({ shape }: { shape: MouthShape }) {
+  const m = FACE[shape] as { navy: string; coral?: string };
   return (
-    <AnimatePresence initial={false} mode="popLayout">
-      <motion.g
-        key={shape}
-        initial={{ opacity: 0, scale: 0.85 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.16 }}
-        style={{ transformBox: "fill-box", transformOrigin: "50% 30%" }}
-      >
-        {node}
+    <AnimatePresence initial={false}>
+      <motion.g key={shape} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.14 }}>
+        <path d={m.navy} fill={C.navy} />
+        {m.coral && <path d={m.coral} fill={C.coral} />}
       </motion.g>
     </AnimatePresence>
   );

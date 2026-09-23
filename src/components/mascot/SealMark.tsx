@@ -1,4 +1,5 @@
 import { SEAL } from "./seal-geometry";
+import { FACE } from "./seal-face";
 
 const P = SEAL.paths;
 const C = SEAL.palette;
@@ -35,8 +36,8 @@ export function SealMark({ className, withBody = false }: { className?: string; 
       ))}
       <path d={P.browL} fill={C.navy} />
       <path d={P.browR} fill={C.navy} />
-      <path d={P.mouth} fill={C.navy} />
-      <path d={P.tongue} fill={C.coral} />
+      <path d={FACE.open.navy} fill={C.navy} />
+      <path d={FACE.open.coral} fill={C.coral} />
       <path d={P.nose} fill={C.navy} />
     </svg>
   );

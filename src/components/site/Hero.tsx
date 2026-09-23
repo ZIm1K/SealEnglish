@@ -235,25 +235,30 @@ function IceFloe() {
   );
 }
 
+/** A wave that repeats exactly every 1440 units: two periods drift by one period → no seams. */
+function wavePath(y: number, amp: number) {
+  return `M0 ${y} C240 ${y - amp} 480 ${y - amp} 720 ${y} S1200 ${y + amp} 1440 ${y} S1920 ${y - amp} 2160 ${y} S2640 ${y + amp} 2880 ${y} L2880 200 L0 200 Z`;
+}
+
+const WAVES = [
+  { fill: "#16447a", opacity: 0.5, y: 70, amp: 34, dur: "26s", delay: "-4s", reverse: false },
+  { fill: "#2f69ad", opacity: 0.42, y: 104, amp: 26, dur: "19s", delay: "-11s", reverse: true },
+  { fill: "#f5f9ff", opacity: 1, y: 142, amp: 22, dur: "34s", delay: "-7s", reverse: false },
+];
+
 function Waves() {
   return (
-    <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-40 overflow-hidden">
-      {[
-        { color: "#16447a", opacity: 0.55, dur: "22s", y: 0 },
-        { color: "#2f69ad", opacity: 0.45, dur: "16s", y: 18 },
-        { color: "#f5f9ff", opacity: 1, dur: "30s", y: 44 },
-      ].map((w, i) => (
-        <div key={i} className="absolute inset-x-0 bottom-0 flex w-[200%] motion-safe:animate-drift" style={{ animationDuration: w.dur, top: w.y }}>
-          {[0, 1].map((k) => (
-            <svg key={k} viewBox="0 0 1440 140" preserveAspectRatio="none" overflow="visible" className="h-full w-1/2">
-              <path
-                d="M-12 60 L0 60 C 180 20 360 100 540 60 C 720 20 900 100 1080 60 C 1260 20 1350 70 1440 60 L1452 60 L1452 140 L-12 140 Z"
-                fill={w.color}
-                opacity={w.opacity}
-              />
-            </svg>
-          ))}
-        </div>
+    <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-44 overflow-hidden">
+      {WAVES.map((w, i) => (
+        <svg
+          key={i}
+          viewBox="0 0 2880 200"
+          preserveAspectRatio="none"
+          className="absolute bottom-0 left-0 h-full w-[200%] motion-safe:animate-drift"
+          style={{ animationDuration: w.dur, animationDelay: w.delay, animationDirection: w.reverse ? "reverse" : "normal" }}
+        >
+          <path d={wavePath(w.y, w.amp)} fill={w.fill} opacity={w.opacity} />
+        </svg>
       ))}
     </div>
   );

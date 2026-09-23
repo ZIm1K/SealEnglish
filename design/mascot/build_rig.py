@@ -234,7 +234,8 @@ brow_r = next(m for m in brows if np.argwhere(m)[:, 1].mean() >= 550)
 whisk_l = np.any([m for m in whisk if np.argwhere(m)[:, 1].mean() < 550], axis=0)
 whisk_r = np.any([m for m in whisk if np.argwhere(m)[:, 1].mean() >= 550], axis=0)
 nose_mouth = mouth_all[0]
-nose = nose_mouth & ellipse_mask(557, 404, 34, 19)
+# nose + the philtrum stem that joins the smile (from the reference artwork)
+nose = nose_mouth & (ellipse_mask(557, 403, 40, 22) | poly_mask([(549, 412), (572, 412), (566, 446), (557.5, 446)]))
 mouth = nose_mouth & ~nose
 # the open mouth is navy under the tongue: merge so no light gap shows around the tongue
 mouth = mouth | cv2.dilate(tongue.astype(np.uint8), np.ones((5, 5), np.uint8)).astype(bool)
@@ -285,8 +286,6 @@ geometry = {
         "whiskersL": mask_path(whisk_l, sigma=1.0, eps=0.6),
         "whiskersR": mask_path(whisk_r, sigma=1.0, eps=0.6),
         "nose": mask_path(nose, sigma=1.2),
-        "mouth": mask_path(mouth, sigma=1.0, eps=0.6),
-        "tongue": mask_path(tongue, sigma=1.2),
     },
     "anchors": {
         "headPivot": [560, 545],
