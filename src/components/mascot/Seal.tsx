@@ -227,6 +227,8 @@ export function Seal({
       return;
     }
     const onMove = (e: PointerEvent) => {
+      // only a real cursor: taps and scrolls on touch screens would make the gaze jump randomly
+      if (e.pointerType !== "mouse" && e.pointerType !== "pen") return;
       const svg = svgRef.current;
       if (!svg) return;
       const r = svg.getBoundingClientRect();

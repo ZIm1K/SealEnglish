@@ -45,7 +45,7 @@ function formatPhone(raw: string) {
 
 export function TrialSection() {
   const [emotion, setEmotion] = useState<SealEmotion>("happy");
-  const [look, setLook] = useState<{ x: number; y: number } | null>({ x: -0.8, y: 0.1 });
+  const [look, setLook] = useState<{ x: number; y: number } | null>(null);
   const [jump, setJump] = useState<number | undefined>();
   const [done, setDone] = useState<{ no?: number } | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
@@ -145,7 +145,7 @@ export function TrialSection() {
                           setDone(null);
                           form.reset({ age_group: "teens", consent: true, name: "", phone: "" });
                           setEmotion("happy");
-                          setLook({ x: -0.8, y: 0.1 });
+                          setLook(null);
                         }}
                       >
                         Ще одна заявка
@@ -157,6 +157,7 @@ export function TrialSection() {
                     key="form"
                     exit={{ opacity: 0, y: -10 }}
                     onSubmit={handleSubmit(onSubmit, onInvalid)}
+                    onBlur={() => setLook(null)}
                     className="mt-8 grid gap-5"
                     noValidate
                   >

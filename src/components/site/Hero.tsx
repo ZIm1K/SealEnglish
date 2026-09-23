@@ -73,6 +73,7 @@ export function Hero() {
     <section
       className="relative isolate overflow-hidden bg-ocean-950 text-white"
       onPointerMove={(e) => {
+        if (e.pointerType !== "mouse") return; // touch: no parallax jumps on taps/scroll
         const r = e.currentTarget.getBoundingClientRect();
         mx.set((e.clientX - r.left) / r.width - 0.5);
         my.set((e.clientY - r.top) / r.height - 0.5);
@@ -211,8 +212,8 @@ export function Hero() {
             transition={{ type: "spring", stiffness: 120, damping: 16, delay: 0.2 }}
             className="relative z-10 mx-auto w-[88%] cursor-pointer sm:w-[80%]"
             onClick={onPoke}
-            onMouseEnter={() => !reply && setEmotion("joy")}
-            onMouseLeave={() => !reply && setEmotion("happy")}
+            onPointerEnter={(e) => e.pointerType === "mouse" && !reply && setEmotion("joy")}
+            onPointerLeave={(e) => e.pointerType === "mouse" && !reply && setEmotion("happy")}
           >
             <Seal emotion={emotion} wave={wave} track reading={!wave} jumpKey={jump} />
             <IceFloe />
