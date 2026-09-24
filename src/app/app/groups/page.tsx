@@ -3,28 +3,32 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Archive, Pencil, Plus, UserMinus, UserPlus, UsersRound, CalendarPlus } from "lucide-react";
+import { Archive, ArchiveRestore, Pencil, Plus, UserMinus, UserPlus, UsersRound, CalendarPlus } from "lucide-react";
 import { PageHeader, EmptyState } from "@/components/app/AppShell";
 import { useMe, isStaffRole } from "@/components/app/session";
 import { NewLessonDialog } from "@/components/app/lessons";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/overlay";
-import { Field, Input, Select, Textarea } from "@/components/ui/form";
+import { Checkbox, Field, Input, Select, Textarea } from "@/components/ui/form";
 import { Avatar, Badge, Skeleton } from "@/components/ui/misc";
 import { supabase } from "@/lib/supabase";
 import { useGroups, usePeople } from "@/lib/queries";
 import { AGE_LABEL, GROUP_COLORS, LEVELS, type AgeGroup, type Group } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
+const COLOR_NAME: Record<string, string> = { sky: "Блакитний", coral: "Кораловий", mint: "М'ятний", grape: "Фіолетовий", sun: "Жовтий", ink: "Темно-синій" };
+
 export default function GroupsPage() {
   const me = useMe();
   const staff = isStaffRole(me.role);
-  const { data: groups = [], isLoading } = useGroups();
+  const [showArchived, setShowArchived] = useState(false);
+  const { data: groups = [], isLoading } = useGroups({ includeArchived: showArchived });
+  const qc = useQueryClient();
   const [editing, setEditing] = useState<Group | "new" | null>(null);
   const [managing, setManaging] = useState<Group | null>(null);
   const [scheduling, setScheduling] = useState(false);
 
-  const visible = staff ? groups : groups.filter((g) => g.teacher_id === me.id);
+  const visible = staff ? groups : groups.filter((g) => g.teacher_id === me.id && !g.is_archived);
 
   return (
     <div>
@@ -38,6 +42,11 @@ export default function GroupsPage() {
           </>
         }
       />
+      {staff && (
+        <div className="mb-4">
+          <Checkbox checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} label="Показати архівні групи" />
+        </div>
+      )}
       {isLoading ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{Array.from({ length: 3 }, (_, i) => <Skeleton key={i} className="h-52" />)}</div>
       ) : visible.length === 0 ? (
@@ -52,12 +61,12 @@ export default function GroupsPage() {
             const c = GROUP_COLORS[g.color] ?? GROUP_COLORS.sky;
             const members = g.members ?? [];
             return (
-              <article key={g.id} className="card overflow-hidden transition hover:shadow-lift">
+              <article key={g.id} className={cn("card overflow-hidden transition hover:shadow-lift", g.is_archived && "opacity-60")}>
                 <div className={cn("h-2", c.bg)} />
                 <div className="p-5">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <h3 className="truncate font-display text-lg font-semibold text-ocean-900">{g.name}</h3>
+                      <h3 className="truncate font-display text-lg font-semibold text-ocean-900">{g.name}{g.is_archived && <span className="ml-2 text-xs font-normal text-mute">(архів)</span>}</h3>
                       <div className="mt-1 flex flex-wrap gap-1.5">
                         {g.level && <Badge tone="ocean">{g.level}</Badge>}
                         {g.age_group && <Badge>{AGE_LABEL[g.age_group]}</Badge>}
@@ -80,7 +89,15 @@ export default function GroupsPage() {
                   </div>
                   <div className="mt-5 flex gap-2">
                     <Button size="sm" variant="soft" onClick={() => setManaging(g)}><UsersRound /> Учні</Button>
-                    {staff && <Button size="sm" variant="ghost" onClick={() => setEditing(g)}><Pencil /> Змінити</Button>}
+                    {staff && !g.is_archived && <Button size="sm" variant="ghost" onClick={() => setEditing(g)}><Pencil /> Змінити</Button>}
+                    {staff && g.is_archived && (
+                      <Button size="sm" variant="ghost" onClick={async () => {
+                        const { error } = await supabase.from("groups").update({ is_archived: false }).eq("id", g.id);
+                        if (error) return toast.error(error.message);
+                        toast.success("Групу відновлено");
+                        qc.invalidateQueries({ queryKey: ["groups"] });
+                      }}><ArchiveRestore /> Відновити</Button>
+                    )}
                   </div>
                 </div>
               </article>
@@ -126,10 +143,11 @@ function GroupDialog({ group, onClose }: { group: Group | null; onClose: () => v
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success("Групу архівовано");
+      toast.success("Групу архівовано", { description: "Її можна відновити: «Показати архівні групи»" });
       qc.invalidateQueries({ queryKey: ["groups"] });
       onClose();
     },
+    onError: (e: Error) => toast.error(e.message),
   });
 
   return (
@@ -159,7 +177,7 @@ function GroupDialog({ group, onClose }: { group: Group | null; onClose: () => v
           <Field label="Колір">
             <div className="flex gap-2">
               {Object.entries(GROUP_COLORS).map(([k, c]) => (
-                <button type="button" key={k} onClick={() => setColor(k)} className={cn("size-9 cursor-pointer rounded-xl transition", c.bg, color === k ? "ring-4 ring-seal-200 ring-offset-2" : "opacity-70 hover:opacity-100")} aria-label={k} />
+                <button type="button" key={k} onClick={() => setColor(k)} aria-pressed={color === k} className={cn("size-9 cursor-pointer rounded-xl transition", c.bg, color === k ? "ring-4 ring-seal-200 ring-offset-2" : "opacity-70 hover:opacity-100")} aria-label={COLOR_NAME[k] ?? k} />
               ))}
             </div>
           </Field>

@@ -4,18 +4,29 @@ import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { CheckCircle2, Copy, ExternalLink, Globe, Link2Off, Plug, Send, ShieldAlert, Video, CircleAlert } from "lucide-react";
+import Link from "next/link";
+import { Activity, Bot, CheckCircle2, Copy, ExternalLink, Globe, Link2Off, Plug, Send, ShieldAlert, Video, CircleAlert } from "lucide-react";
 import { PageHeader, EmptyState } from "@/components/app/AppShell";
 import { useMe } from "@/components/app/session";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/form";
 import { Badge, Card, CardHeader, Skeleton } from "@/components/ui/misc";
-import { callFunction } from "@/lib/supabase";
+import { callFunction, supabase } from "@/lib/supabase";
+import { fmtDateTime } from "@/lib/dates";
 
 interface Status {
   telegram: { configured: boolean; bot_username: string | null; webhook_url: string | null; pending_updates: number; last_error: string | null };
   google: { client_configured: boolean; client_id: string | null; connected: boolean; account: { email: string | null; connected_at: string } | null; redirect_uri: string };
+  ai: { configured: boolean; key_hint: string | null; enabled: boolean };
   site_url: string;
+}
+
+interface Health {
+  tg_failed_7d: number;
+  tg_sent_7d: number;
+  errors_24h: number;
+  errors_7d: number;
+  last_tg_errors: { created_at: string; kind: string; tg_error: string | null; full_name: string }[];
 }
 
 const GOOGLE_MESSAGES: Record<string, [string, "success" | "error"]> = {
@@ -26,6 +37,7 @@ const GOOGLE_MESSAGES: Record<string, [string, "success" | "error"]> = {
   no_refresh: ["Google не видав refresh token. Відкличте доступ у myaccount.google.com/permissions і підключіть ще раз", "error"],
   error: ["Помилка під час підключення Google", "error"],
 };
+
 
 function copy(text: string) {
   navigator.clipboard.writeText(text);
@@ -67,6 +79,10 @@ function Inner() {
             <TelegramBlock st={st} onChange={refresh} />
             <GoogleBlock st={st} onChange={refresh} />
           </div>
+          <div className="grid gap-6 lg:grid-cols-2">
+            <AiBlock st={st} onChange={refresh} />
+            <HealthBlock />
+          </div>
           <SiteBlock st={st} onChange={refresh} />
         </>
       )}
@@ -100,6 +116,7 @@ function TelegramBlock({ st, onChange }: { st: Status; onChange: () => void }) {
       toast.success("Бота відключено");
       onChange();
     },
+    onError: (e: Error) => toast.error(e.message),
   });
   const test = useMutation({
     mutationFn: () => callFunction("admin", { action: "test_telegram" }),
@@ -176,6 +193,7 @@ function GoogleBlock({ st, onChange }: { st: Status; onChange: () => void }) {
       toast.success("Google відключено");
       onChange();
     },
+    onError: (e: Error) => toast.error(e.message),
   });
 
   return (
@@ -224,6 +242,117 @@ function GoogleBlock({ st, onChange }: { st: Status; onChange: () => void }) {
             {g.client_configured ? "Замінити OAuth-клієнт" : "Зберегти OAuth-клієнт"}
           </Button>
         </form>
+      </div>
+    </Card>
+  );
+}
+
+function AiBlock({ st, onChange }: { st: Status; onChange: () => void }) {
+  const qc = useQueryClient();
+  const [key, setKey] = useState("");
+  const save = useMutation({
+    mutationFn: () => callFunction("admin", { action: "save_ai_key", key }),
+    onSuccess: () => {
+      toast.success("Ключ перевірено й збережено у Vault", { description: "Увімкніть потрібні функції на сторінці «ШІ-модуль»" });
+      setKey("");
+      onChange();
+      qc.invalidateQueries({ queryKey: ["ai-features"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const remove = useMutation({
+    mutationFn: () => callFunction("admin", { action: "remove_ai_key" }),
+    onSuccess: () => {
+      toast.success("Ключ видалено, ШІ-модуль вимкнено");
+      onChange();
+      qc.invalidateQueries({ queryKey: ["ai-features"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const a = st.ai;
+  return (
+    <Card>
+      <CardHeader
+        title={<span className="flex items-center gap-2"><Bot className="size-5 text-violet-500" /> ШІ-провайдер (Anthropic)</span>}
+        description="Claude для чернеток перевірки ДЗ, підсумків уроків і тренера. Ключ зберігається у Vault і недоступний з браузера."
+        action={a.configured ? <Badge tone={a.enabled ? "mint" : "sun"}>{a.enabled ? "Увімкнено" : "Ключ є, вимкнено"}</Badge> : <Badge tone="gray">Не налаштовано</Badge>}
+      />
+      <div className="grid gap-4 p-5 sm:p-6">
+        {a.configured ? (
+          <div className="flex flex-wrap items-center gap-2 rounded-2xl bg-violet-50 p-4 text-sm">
+            Ключ <code>{a.key_hint}</code>
+            <Button asChild size="sm" variant="outline" className="ml-auto"><Link href="/app/ai/">Налаштування ШІ →</Link></Button>
+            <Button size="sm" variant="ghost" className="text-red-600" onClick={() => confirm("Видалити ключ і вимкнути ШІ-модуль?") && remove.mutate()}><Link2Off /> Видалити</Button>
+          </div>
+        ) : (
+          <ol className="grid gap-2">
+            <Step n={1}>Створіть ключ у <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer" className="font-semibold text-seal-700 underline">console.anthropic.com</a> і встановіть ліміт витрат в акаунті.</Step>
+            <Step n={2}>Перед запуском для учнів оновіть політику конфіденційності (пункт про ШІ вже є на сайті) і повідомте батьків.</Step>
+          </ol>
+        )}
+        <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="grid gap-3">
+          <Field label={a.configured ? "Замінити ключ" : "Ключ API"}>
+            <Input value={key} onChange={(e) => setKey(e.target.value)} placeholder="sk-ant-…" type="password" autoComplete="off" />
+          </Field>
+          <Button type="submit" disabled={!key} loading={save.isPending}><Plug /> {a.configured ? "Оновити ключ" : "Перевірити й зберегти"}</Button>
+        </form>
+      </div>
+    </Card>
+  );
+}
+
+/** NFR-10 / ADR-03: delivery failures and Edge Function errors are visible to the admin. */
+function HealthBlock() {
+  const { data: h } = useQuery({
+    queryKey: ["admin-health"],
+    queryFn: async () => {
+      const { data } = await supabase.rpc("admin_health");
+      return data as Health | null;
+    },
+    refetchInterval: 60_000,
+  });
+  const { data: errors = [] } = useQuery({
+    queryKey: ["error-log"],
+    queryFn: async () => {
+      const { data } = await supabase.from("error_log").select("id, source, message, created_at").order("created_at", { ascending: false }).limit(8);
+      return (data ?? []) as { id: number; source: string; message: string; created_at: string }[];
+    },
+  });
+  const ok = h && h.tg_failed_7d === 0 && h.errors_24h === 0;
+  return (
+    <Card>
+      <CardHeader
+        title={<span className="flex items-center gap-2"><Activity className="size-5 text-coral-500" /> Стан системи</span>}
+        description="Доставка сповіщень у Telegram і помилки серверних функцій"
+        action={h ? <Badge tone={ok ? "mint" : "sun"}>{ok ? "Усе гаразд" : "Є проблеми"}</Badge> : null}
+      />
+      <div className="grid gap-4 p-5 sm:p-6 text-sm">
+        {!h ? <Skeleton className="h-24" /> : (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-2xl bg-seal-50 p-3"><div className="font-display text-xl font-bold">{h.tg_sent_7d}</div><div className="text-xs text-mute">доставлено за 7 днів</div></div>
+              <div className={`rounded-2xl p-3 ${h.tg_failed_7d ? "bg-amber-50" : "bg-seal-50"}`}><div className="font-display text-xl font-bold">{h.tg_failed_7d}</div><div className="text-xs text-mute">не доставлено (після 3 спроб)</div></div>
+              <div className={`rounded-2xl p-3 ${h.errors_24h ? "bg-amber-50" : "bg-seal-50"}`}><div className="font-display text-xl font-bold">{h.errors_24h}</div><div className="text-xs text-mute">помилок за добу</div></div>
+              <div className="rounded-2xl bg-seal-50 p-3"><div className="font-display text-xl font-bold">{h.errors_7d}</div><div className="text-xs text-mute">помилок за 7 днів</div></div>
+            </div>
+            {h.last_tg_errors.length > 0 && (
+              <div>
+                <div className="mb-1 text-xs font-semibold text-mute">Останні збої доставки</div>
+                <ul className="grid gap-1 text-xs">
+                  {h.last_tg_errors.map((e, i) => <li key={i}>{fmtDateTime(e.created_at)} · {e.full_name}: {e.tg_error ?? e.kind}</li>)}
+                </ul>
+              </div>
+            )}
+            {errors.length > 0 && (
+              <details>
+                <summary className="cursor-pointer text-xs font-semibold text-mute">Журнал помилок функцій</summary>
+                <ul className="mt-2 grid gap-1 text-xs">
+                  {errors.map((e) => <li key={e.id} className="break-words"><b>{e.source}</b> · {fmtDateTime(e.created_at)} — {e.message}</li>)}
+                </ul>
+              </details>
+            )}
+          </>
+        )}
       </div>
     </Card>
   );

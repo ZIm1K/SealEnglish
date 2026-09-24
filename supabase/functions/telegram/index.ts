@@ -1,8 +1,11 @@
 // Telegram bot webhook: trial sign-up, lead management for staff, schedule & homework for students/teachers.
 import {
-  admin, fmtKyiv, fmtKyivDay, fmtKyivTime, getSecret, handle, HttpError, isStaff, json, siteUrl,
-  timingSafeEqual, type Profile,
+  admin, fmtKyiv, fmtKyivDay, fmtKyivTime, getSecret, handle, HttpError, isStaff, json, logError, siteUrl,
+  timingSafeEqual, TZ, type Profile,
 } from "../_shared/core.ts";
+import { aiClient, aiSettings, assertGlobalBudget, logUsage, textOf } from "../_shared/ai.ts";
+import { nightReplySystem } from "../_shared/prompts.ts";
+import { SCHOOL_FACTS } from "../_shared/school.ts";
 import {
   AGE_GROUP, esc, isPublicHttps, LEAD_STATUS, leadCard, leadKeyboard, loadLead, sendLeadCard, sendMessage, tg,
   type InlineKeyboard,
@@ -77,7 +80,7 @@ async function upcomingLessons(p: Profile, days: number, limit: number) {
   const now = new Date();
   let q = admin
     .from("lessons")
-    .select("id, kind, title, topic, starts_at, ends_at, meet_url, group:groups(name), student:profiles!lessons_student_id_fkey(full_name), lead:leads!lessons_lead_id_fkey(name), teacher:profiles!lessons_teacher_id_fkey(full_name)")
+    .select("id, kind, title, topic, starts_at, ends_at, meet_url, group:groups(name), student:profiles!lessons_student_id_fkey(full_name), lesson_leads(lead:leads(name)), teacher:profiles!lessons_teacher_id_fkey(full_name)")
     .eq("status", "scheduled")
     .gte("ends_at", now.toISOString())
     .lte("starts_at", new Date(now.getTime() + days * 86400_000).toISOString())
@@ -93,7 +96,8 @@ async function upcomingLessons(p: Profile, days: number, limit: number) {
 }
 
 function lessonLabel(l: Any, p: Profile) {
-  const who = l.group?.name ?? l.student?.full_name ?? (l.lead?.name ? `Пробний · ${l.lead.name}` : "");
+  const leads = (l.lesson_leads ?? []).map((x: Any) => x.lead?.name).filter(Boolean);
+  const who = l.group?.name ?? l.student?.full_name ?? (leads.length ? `Пробний · ${leads.join(", ")}` : "");
   const title = l.title ?? (l.kind === "trial" ? "Пробний урок" : "Урок англійської");
   if (p.role === "student") return `${title}${l.teacher?.full_name ? ` · ${l.teacher.full_name}` : ""}`;
   return `${title}${who ? ` · ${who}` : ""}${isStaff(p) && l.teacher?.full_name ? ` · ${l.teacher.full_name}` : ""}`;
@@ -230,13 +234,15 @@ const TIME_SLOTS: Record<string, string> = {
 
 async function startTrial(chatId: number) {
   await setSession(chatId, "trial:name", {});
-  await sendMessage(chatId, `🎁 <b>Запис на безкоштовний пробний урок</b>\n\nПробний урок триває 30–40 хвилин: знайомимось, визначаємо рівень і складаємо план навчання.\n\nЯк звати учня? ✍️`, {
+  await sendMessage(chatId, `🎁 <b>Запис на безкоштовний пробний урок</b>\n\nПробний урок проходить у Google Meet у міні-групі до 4 учасників (60 хв) або індивідуально (30 хв): знайомимось, визначаємо рівень і складаємо план навчання.\n\nЯк звати учня? ✍️`, {
     reply_markup: { keyboard: [[{ text: BTN.cancel }]], resize_keyboard: true, one_time_keyboard: false },
   });
 }
 
 async function askPhone(chatId: number) {
-  await sendMessage(chatId, "📱 Залиште номер телефону, щоб менеджер міг зв'язатися. Можна натиснути кнопку нижче або ввести номер вручну.", {
+  const site = await siteUrl();
+  const privacy = isPublicHttps(site) ? `<a href="${site}/privacy/">політикою конфіденційності</a>` : "політикою конфіденційності";
+  await sendMessage(chatId, `📱 Залиште номер телефону, щоб менеджер міг зв'язатися. Можна натиснути кнопку нижче або ввести номер вручну.\n\n<i>Надсилаючи номер, ви (або один із батьків, якщо учню менше 18) погоджуєтесь з ${privacy}.</i>`, {
     reply_markup: {
       keyboard: [[{ text: "📱 Поділитися номером", request_contact: true }], [{ text: BTN.cancel }]],
       resize_keyboard: true,
@@ -280,6 +286,76 @@ async function finishTrial(chatId: number, from: Any, s: Session) {
   });
 }
 
+// ───────────── parents: weekly reports with consent (FR-20) ─────────────
+async function parentInvite(chatId: number, code: string) {
+  const { data: link } = await admin
+    .from("parent_link_codes")
+    .select("student_id, expires_at, student:profiles!parent_link_codes_student_id_fkey(full_name)")
+    .eq("code", code)
+    .maybeSingle();
+  if (!link || new Date(link.expires_at) < new Date()) {
+    return sendMessage(chatId, "⏳ Посилання застаріло. Попросіть у менеджера школи нове.");
+  }
+  const name = ((link as Any).student?.full_name ?? "").split(" ")[0];
+  const site = await siteUrl();
+  return sendMessage(chatId, `👋 Вітаємо! Це бот школи Seal English.\n\nРаз на тиждень ми можемо надсилати вам короткий звіт про навчання <b>${esc(name)}</b>: відвідування уроків, домашні завдання й оцінки, активність практики. Лише зведені дані — без листування учня.\n\nВідписатися можна будь-коли командою /stop.${isPublicHttps(site) ? `\nДетальніше: ${site}/privacy/` : ""}\n\nПогоджуєтесь отримувати звіти й на обробку цих даних?`, {
+    reply_markup: { inline_keyboard: [[{ text: "✅ Так, погоджуюсь", callback_data: `pc:${code}` }, { text: "Ні", callback_data: "pn" }]] },
+  });
+}
+
+async function parentConsent(chatId: number, from: Any, code: string) {
+  const { data: link } = await admin.from("parent_link_codes").select("student_id, expires_at").eq("code", code).maybeSingle();
+  if (!link || new Date(link.expires_at) < new Date()) return false;
+  await admin.from("parent_contacts").upsert({
+    student_id: link.student_id,
+    telegram_chat_id: chatId,
+    name: [from?.first_name, from?.last_name].filter(Boolean).join(" ") || null,
+    consent_at: new Date().toISOString(),
+    consent_source: "telegram_bot",
+    revoked_at: null,
+  }, { onConflict: "student_id,telegram_chat_id" });
+  await admin.from("parent_link_codes").delete().eq("code", code);
+  return true;
+}
+
+async function stopReports(chatId: number) {
+  const { data } = await admin.from("parent_contacts").update({ revoked_at: new Date().toISOString() }).eq("telegram_chat_id", chatId).is("revoked_at", null).select("id");
+  return sendMessage(chatId, data?.length ? "Готово, звіти більше не надходитимуть. Повернутися можна за новим посиланням від школи 💙" : "У вас немає активних підписок на звіти.");
+}
+
+// ───────────── night answers for visitors (FR-23) ─────────────
+function isNight(): boolean {
+  const h = Number(new Intl.DateTimeFormat("en-GB", { timeZone: TZ, hour: "2-digit", hourCycle: "h23" }).format(new Date()));
+  return h >= 21 || h < 8;
+}
+
+async function nightReply(chatId: number, text: string): Promise<boolean> {
+  try {
+    const settings = await aiSettings();
+    if (!settings.night_reply_enabled || !isNight() || text.length < 3 || text.length > 800) return false;
+    const { data: ok } = await admin.rpc("hit_rate_limit", { p_bucket: `night:${chatId}`, p_max: 8, p_window_seconds: 12 * 3600 });
+    if (ok === false) return false;
+    const client = await aiClient(settings);
+    await assertGlobalBudget(settings);
+    const msg = await client.messages.create({
+      model: settings.model_fast,
+      max_tokens: 500,
+      system: nightReplySystem(SCHOOL_FACTS),
+      messages: [{ role: "user", content: text }],
+    });
+    await logUsage(settings, { userId: null, feature: "bot_night", model: settings.model_fast, usage: msg.usage });
+    const answer = textOf(msg).trim();
+    if (!answer || msg.stop_reason === "refusal") return false;
+    await sendMessage(chatId, `${esc(answer)}\n\n<i>🌙 Це автоматична відповідь Сілі. Менеджер відповість зранку.</i>`, {
+      reply_markup: { inline_keyboard: [[{ text: BTN.trial, callback_data: "trial" }]] },
+    });
+    return true;
+  } catch (e) {
+    await logError("telegram:night", e);
+    return false;
+  }
+}
+
 // ───────────── routing ─────────────
 async function greet(chatId: number, p: Profile | null, fromName?: string) {
   if (!p) {
@@ -303,7 +379,7 @@ async function linkAccount(chatId: number, from: Any, code: string) {
     .eq("code", code)
     .maybeSingle();
   if (!link || new Date(link.expires_at) < new Date()) {
-    await sendMessage(chatId, "⏳ Посилання застаріло. Згенеруйте нове в кабінеті: Профіль → Telegram.");
+    await sendMessage(chatId, "⏳ Посилання застаріло. Згенеруйте нове в кабінеті: Налаштування → Telegram.");
     return;
   }
   await admin.from("profiles").update({ telegram_chat_id: null, telegram_username: null }).eq("telegram_chat_id", chatId).neq("id", link.user_id);
@@ -329,6 +405,7 @@ async function onMessage(msg: Any) {
   if (text.startsWith("/start")) {
     const payload = text.split(/\s+/)[1] ?? "";
     if (payload.startsWith("link_")) return linkAccount(chatId, from, payload.slice(5));
+    if (payload.startsWith("parent_")) return parentInvite(chatId, payload.slice(7));
     if (payload === "trial") return startTrial(chatId);
     await clearSession(chatId);
     return greet(chatId, p, from?.first_name);
@@ -338,6 +415,7 @@ async function onMessage(msg: Any) {
     return sendMessage(chatId, "Гаразд, скасовано 👌", { reply_markup: menuFor(p) });
   }
   if (text === "/menu" || text === "/help") return greet(chatId, p, from?.first_name);
+  if (text === "/stop") return stopReports(chatId);
 
   // stateful flows
   const s = await getSession(chatId);
@@ -355,7 +433,8 @@ async function onMessage(msg: Any) {
   }
   if (s.state === "trial:phone") {
     const phone = (msg.contact?.phone_number ?? text).replace(/[^\d+]/g, "");
-    if (phone.replace(/\D/g, "").length < 9) return sendMessage(chatId, "Схоже, номер неповний. Спробуйте ще раз 📱");
+    const digits = phone.replace(/\D/g, "").length;
+    if (digits < 9 || digits > 15) return sendMessage(chatId, "Схоже, номер неповний. Спробуйте ще раз 📱");
     await setSession(chatId, "trial:time", { ...s.data, phone: phone.startsWith("+") ? phone : `+${phone}` });
     await sendMessage(chatId, "Дякую! 🙌", { reply_markup: { remove_keyboard: true } });
     return askTime(chatId);
@@ -375,7 +454,7 @@ async function onMessage(msg: Any) {
       return startTrial(chatId);
     case BTN.about: {
       const site = await siteUrl();
-      return sendMessage(chatId, `🦭 <b>Seal English</b> — онлайн-школа англійської для підлітків, дітей і дорослих.\n\n• живі уроки в Google Meet з викладачем\n• індивідуальні та групові заняття\n• особистий кабінет з розкладом, матеріалами й домашкою\n• нагадування тут, у Telegram\n\nПерший урок — безкоштовно 🎁`, {
+      return sendMessage(chatId, `🦭 <b>Seal English</b> — онлайн-школа англійської для підлітків 12–18 (а також дітей і дорослих).\n\n• живі уроки в Google Meet з викладачем\n• особистий кабінет з розкладом, матеріалами й домашкою\n• нагадування тут, у Telegram\n\n<b>Ціни за урок</b> (помісячно / пакетом):\n• міні-група 4–6 учнів, 60 хв — 300 / 270 ₴\n• індивідуально, 50 хв — 450 / 420 ₴\n• підготовка до НМТ, 60 хв — 300 / 270 ₴\n\nПерший урок — безкоштовно 🎁`, {
         reply_markup: { inline_keyboard: [[{ text: BTN.trial, callback_data: "trial" }], ...(isPublicHttps(site) ? [[{ text: "Сайт школи →", url: site }]] : [])] },
       });
     }
@@ -397,7 +476,10 @@ async function onMessage(msg: Any) {
     if (isStaff(p) && text === BTN.leadsNew) return sendLeadList(chatId, ["new"], "🆕 <b>Нові заявки</b>");
     if (isStaff(p) && text === BTN.leadsActive) return sendLeadList(chatId, ["contacted", "trial_scheduled", "trial_done"], "📋 <b>Заявки в роботі</b>");
   }
-  return sendMessage(chatId, `Я поки не розумію це повідомлення 🦭 Скористайтеся меню нижче.`, { reply_markup: menuFor(p) });
+  if (!p && !text.startsWith("/") && (await nightReply(chatId, text))) return;
+  return sendMessage(chatId, p
+    ? "Я поки не розумію це повідомлення 🦭 Скористайтеся меню нижче."
+    : "Я поки не розумію це повідомлення 🦭 Скористайтеся меню нижче — або запишіться на пробний урок, і менеджер відповість на всі питання.", { reply_markup: menuFor(p) });
 }
 
 async function onCallback(cq: Any) {
@@ -419,6 +501,17 @@ async function onCallback(cq: Any) {
     await answer(AGE_GROUP[age]);
     await tg("editMessageText", { chat_id: chatId, message_id: messageId, text: `Група: <b>${esc(AGE_GROUP[age] ?? age)}</b> ✓`, parse_mode: "HTML" });
     return askPhone(chatId);
+  }
+  if (data.startsWith("pc:")) {
+    const ok = await parentConsent(chatId, cq.from, data.slice(3));
+    await answer(ok ? "Дякуємо!" : "Посилання застаріло", !ok);
+    await tg("editMessageReplyMarkup", { chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [] } });
+    if (ok) await sendMessage(chatId, "✅ Готово! Перший звіт прийде в неділю ввечері. Відписатися — /stop");
+    return;
+  }
+  if (data === "pn") {
+    await answer("Гаразд");
+    return tg("editMessageReplyMarkup", { chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [] } });
   }
   if (data.startsWith("tt:")) {
     const s = await getSession(chatId);

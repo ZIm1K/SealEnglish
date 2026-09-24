@@ -13,11 +13,40 @@ import { Skeleton } from "@/components/ui/misc";
 import { useLessons, usePeople, targetLabel } from "@/lib/queries";
 import { fmtRelativeDay, fmtTime, weekDays } from "@/lib/dates";
 import { GROUP_COLORS, type Lesson } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { cn, plural } from "@/lib/utils";
 
 const HOUR_START = 8;
 const HOUR_END = 22;
 const HOUR_PX = 56;
+
+/** Side-by-side lanes for overlapping lessons (several teachers at the same hour). */
+function layoutDay(list: Lesson[]) {
+  const sorted = [...list].sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+  const out = new Map<string, { lane: number; lanes: number }>();
+  let cluster: Lesson[] = [];
+  let laneEnds: number[] = [];
+  let clusterEnd = 0;
+  const flush = () => {
+    for (const l of cluster) out.set(l.id, { ...out.get(l.id)!, lanes: laneEnds.length });
+    cluster = [];
+    laneEnds = [];
+  };
+  for (const l of sorted) {
+    const s = new Date(l.starts_at).getTime();
+    const e = new Date(l.ends_at).getTime();
+    if (cluster.length && s >= clusterEnd) flush();
+    let lane = laneEnds.findIndex((end) => end <= s);
+    if (lane < 0) {
+      lane = laneEnds.length;
+      laneEnds.push(e);
+    } else laneEnds[lane] = e;
+    out.set(l.id, { lane, lanes: 1 });
+    cluster.push(l);
+    clusterEnd = Math.max(clusterEnd, e);
+  }
+  flush();
+  return out;
+}
 
 export default function SchedulePage() {
   const me = useMe();
@@ -74,7 +103,10 @@ export default function SchedulePage() {
         <Button variant="outline" size="icon" onClick={() => setAnchor((d) => addDays(d, -7))} aria-label="Попередній тиждень"><ChevronLeft /></Button>
         <Button variant="outline" size="sm" onClick={() => setAnchor(new Date())}>Сьогодні</Button>
         <Button variant="outline" size="icon" onClick={() => setAnchor((d) => addDays(d, 7))} aria-label="Наступний тиждень"><ChevronRight /></Button>
-        <span className="ml-2 text-sm text-mute">{lessons.filter((l) => l.status !== "cancelled").length} уроків цього тижня</span>
+        <span className="ml-2 text-sm text-mute">{(() => {
+          const n = lessons.filter((l) => l.status !== "cancelled").length;
+          return `${n} ${plural(n, "урок", "уроки", "уроків")} цього тижня`;
+        })()}</span>
       </div>
 
       {isLoading ? (
@@ -126,8 +158,14 @@ function WeekGrid({
     const t = setInterval(() => setNow(new Date()), 60_000);
     return () => clearInterval(t);
   }, []);
-  const hours = Array.from({ length: HOUR_END - HOUR_START }, (_, i) => HOUR_START + i);
-  const top = (d: Date) => ((d.getHours() + d.getMinutes() / 60 - HOUR_START) * HOUR_PX);
+  // widen the grid for early/late lessons (e.g. students abroad in other time zones)
+  const startHour = Math.min(HOUR_START, ...lessons.map((l) => new Date(l.starts_at).getHours()));
+  const endHour = Math.max(HOUR_END, ...lessons.map((l) => {
+    const e = new Date(l.ends_at);
+    return Math.min(24, e.getHours() + (e.getMinutes() ? 1 : 0) || 24);
+  }));
+  const hours = Array.from({ length: endHour - startHour }, (_, i) => startHour + i);
+  const top = (d: Date) => ((d.getHours() + d.getMinutes() / 60 - startHour) * HOUR_PX);
 
   return (
     <div className="card overflow-hidden">
@@ -147,13 +185,14 @@ function WeekGrid({
           <div className="relative grid grid-cols-[3.5rem_repeat(7,1fr)]" style={{ height: hours.length * HOUR_PX }}>
             <div className="relative">
               {hours.map((h) => (
-                <div key={h} className="absolute right-2 -translate-y-2 text-[11px] text-mute" style={{ top: (h - HOUR_START) * HOUR_PX }}>
+                <div key={h} className="absolute right-2 -translate-y-2 text-[11px] text-mute" style={{ top: (h - startHour) * HOUR_PX }}>
                   {h}:00
                 </div>
               ))}
             </div>
             {days.map((d) => {
               const list = lessons.filter((l) => isSameDay(new Date(l.starts_at), d));
+              const lanes = layoutDay(list);
               return (
                 <div
                   key={d.toISOString()}
@@ -161,16 +200,16 @@ function WeekGrid({
                   onDoubleClick={(e) => {
                     if (!onCreate) return;
                     const rect = e.currentTarget.getBoundingClientRect();
-                    const h = Math.floor((e.clientY - rect.top) / HOUR_PX) + HOUR_START;
+                    const h = Math.floor((e.clientY - rect.top) / HOUR_PX) + startHour;
                     const dt = new Date(d);
                     dt.setHours(h, 0, 0, 0);
                     onCreate(dt);
                   }}
                 >
                   {hours.map((h) => (
-                    <div key={h} className="absolute inset-x-0 border-t border-line/60" style={{ top: (h - HOUR_START) * HOUR_PX }} />
+                    <div key={h} className="absolute inset-x-0 border-t border-line/60" style={{ top: (h - startHour) * HOUR_PX }} />
                   ))}
-                  {isToday(d) && now.getHours() >= HOUR_START && now.getHours() < HOUR_END && (
+                  {isToday(d) && now.getHours() >= startHour && now.getHours() < endHour && (
                     <div className="absolute inset-x-0 z-20 flex items-center" style={{ top: top(now) }}>
                       <span className="-ml-1 size-2.5 rounded-full bg-coral-500" />
                       <span className="h-0.5 flex-1 bg-coral-500" />
@@ -183,17 +222,25 @@ function WeekGrid({
                     const h = Math.max(26, top(e) - t - 3);
                     const color = GROUP_COLORS[l.group?.color ?? (l.kind === "trial" ? "coral" : "sky")] ?? GROUP_COLORS.sky;
                     const st = lessonState(l);
+                    const { lane, lanes: n } = lanes.get(l.id) ?? { lane: 0, lanes: 1 };
                     return (
                       <button
                         key={l.id}
                         onClick={() => onOpen(l)}
+                        aria-label={`${fmtTime(l.starts_at)} ${targetLabel(l)}${l.teacher ? `, ${l.teacher.full_name}` : ""}`}
                         className={cn(
-                          "absolute inset-x-1 z-10 cursor-pointer overflow-hidden rounded-xl border-l-4 px-2 py-1 text-left text-xs shadow-soft transition hover:z-30 hover:shadow-lift",
+                          "absolute z-10 cursor-pointer overflow-hidden rounded-xl border-l-4 px-2 py-1 text-left text-xs shadow-soft transition hover:z-30 hover:shadow-lift",
                           color.soft,
                           st === "cancelled" && "opacity-50 line-through",
                           st === "live" && "ring-2 ring-coral-400",
                         )}
-                        style={{ top: t + 1, height: h, borderLeftColor: color.hex }}
+                        style={{
+                          top: t + 1,
+                          height: h,
+                          borderLeftColor: color.hex,
+                          left: `calc(${(lane / n) * 100}% + 4px)`,
+                          width: `calc(${100 / n}% - 8px)`,
+                        }}
                       >
                         <div className={cn("font-semibold", color.text)}>{fmtTime(l.starts_at)} {l.kind === "trial" && "· Пробний"}</div>
                         <div className="truncate font-medium text-ink">{targetLabel(l)}</div>

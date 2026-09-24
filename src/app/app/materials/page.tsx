@@ -258,9 +258,22 @@ function ShareDialog({ material, onClose }: { material: Material; onClose: () =>
   const { data: students = [] } = usePeople(["student"]);
   const [type, setType] = useState<"group" | "student">("group");
   const [target, setTarget] = useState("");
-  const shares = material.shares ?? [];
-
-  const refresh = () => qc.invalidateQueries({ queryKey: ["materials"] }).then(onClose);
+  // live list, so several groups/students can be added without reopening the dialog
+  const { data: shares = material.shares ?? [] } = useQuery({
+    queryKey: ["material-shares", material.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("material_shares")
+        .select("id, group_id, student_id, group:groups(name), student:profiles!material_shares_student_id_fkey(id, full_name, avatar_url)")
+        .eq("material_id", material.id);
+      if (error) throw error;
+      return (data ?? []) as unknown as NonNullable<Material["shares"]>;
+    },
+  });
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ["material-shares", material.id] });
+    qc.invalidateQueries({ queryKey: ["materials"] });
+  };
 
   const add = useMutation({
     mutationFn: async () => {
@@ -274,6 +287,7 @@ function ShareDialog({ material, onClose }: { material: Material; onClose: () =>
     },
     onSuccess: () => {
       toast.success("Доступ відкрито");
+      setTarget("");
       refresh();
     },
     onError: (e: Error) => toast.error(e.message.includes("duplicate") ? "Вже поширено" : e.message),
@@ -287,29 +301,33 @@ function ShareDialog({ material, onClose }: { material: Material; onClose: () =>
   };
 
   const myGroups = staff ? groups : groups.filter((g) => g.teacher_id === me.id);
+  const taken = new Set(shares.map((s) => s.group_id ?? s.student_id));
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
       <DialogContent title="Поділитися матеріалом" description={material.title}>
         <div className="grid gap-5">
-          {shares.length > 0 && (
+          {shares.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {shares.map((s) => (
                 <span key={s.id} className="inline-flex items-center gap-1.5 rounded-full bg-seal-100 py-1 pr-1.5 pl-3 text-sm font-medium text-seal-800">
                   {s.group?.name ?? s.student?.full_name}
-                  <button onClick={() => revoke(s.id)} className="cursor-pointer rounded-full p-0.5 hover:bg-white" aria-label="Закрити доступ"><X className="size-3.5" /></button>
+                  <button onClick={() => revoke(s.id)} className="cursor-pointer rounded-full p-0.5 hover:bg-white" aria-label={`Закрити доступ: ${s.group?.name ?? s.student?.full_name ?? ""}`}><X className="size-3.5" /></button>
                 </span>
               ))}
             </div>
+          ) : (
+            <p className="text-sm text-mute">Поки бачать лише викладачі й персонал.</p>
           )}
-          <Segmented value={type} onChange={(v) => { setType(v); setTarget(""); }} options={[{ value: "group", label: "Групі" }, { value: "student", label: "Учню" }]} />
-          <Select value={target} onChange={(e) => setTarget(e.target.value)}>
+          <Segmented value={type} onChange={(v) => { setType(v); setTarget(""); }} label="Кому відкрити" options={[{ value: "group", label: "Групі" }, { value: "student", label: "Учню" }]} />
+          <Select value={target} onChange={(e) => setTarget(e.target.value)} aria-label={type === "group" ? "Група" : "Учень"}>
             <option value="">Оберіть…</option>
             {type === "group"
-              ? myGroups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)
-              : students.filter((s) => s.is_active).map((s) => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+              ? myGroups.filter((g) => !taken.has(g.id)).map((g) => <option key={g.id} value={g.id}>{g.name}</option>)
+              : students.filter((s) => s.is_active && !taken.has(s.id)).map((s) => <option key={s.id} value={s.id}>{s.full_name}</option>)}
           </Select>
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={onClose}>Готово</Button>
             <Button disabled={!target} loading={add.isPending} onClick={() => add.mutate()}><Share2 /> Відкрити доступ</Button>
           </div>
         </div>

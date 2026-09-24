@@ -13,6 +13,19 @@ export function SiteHeader({ solid = false }: { solid?: boolean }) {
   const [scrolled, setScrolled] = useState(solid);
   const [open, setOpen] = useState(false);
 
+  // Escape closes the mobile menu; the page doesn't scroll behind it
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
   useEffect(() => {
     if (solid) return;
     const on = () => setScrolled(window.scrollY > 24);
@@ -34,7 +47,7 @@ export function SiteHeader({ solid = false }: { solid?: boolean }) {
         <Logo dark={dark} />
         <nav className="hidden items-center gap-1 lg:flex" aria-label="Основна навігація">
           {NAV.map((n) => (
-            <a
+            <Link
               key={n.href}
               href={n.href}
               className={cn(
@@ -43,7 +56,7 @@ export function SiteHeader({ solid = false }: { solid?: boolean }) {
               )}
             >
               {n.label}
-            </a>
+            </Link>
           ))}
         </nav>
         <div className="flex items-center gap-2">
@@ -53,14 +66,15 @@ export function SiteHeader({ solid = false }: { solid?: boolean }) {
             </Link>
           </Button>
           <Button asChild size="sm" className="hidden sm:inline-flex">
-            <a href="/#trial">
+            <Link href="/#trial">
               Пробний урок <ArrowRight />
-            </a>
+            </Link>
           </Button>
           <button
             onClick={() => setOpen(true)}
             className={cn("flex size-10 cursor-pointer items-center justify-center rounded-xl lg:hidden", dark ? "text-white hover:bg-white/10" : "text-ink hover:bg-seal-100")}
             aria-label="Відкрити меню"
+            aria-expanded={open}
           >
             <Menu className="size-6" />
           </button>
@@ -69,7 +83,7 @@ export function SiteHeader({ solid = false }: { solid?: boolean }) {
 
       <AnimatePresence>
         {open && (
-          <motion.div className="fixed inset-0 z-50 lg:hidden" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+          <motion.div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Меню" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <div className="absolute inset-0 bg-ocean-950/50 backdrop-blur-sm" onClick={() => setOpen(false)} />
             <motion.div
               className="absolute inset-x-3 top-3 rounded-3xl bg-white p-5 shadow-lift"
@@ -86,17 +100,17 @@ export function SiteHeader({ solid = false }: { solid?: boolean }) {
               </div>
               <nav className="mt-4 grid gap-1">
                 {NAV.map((n) => (
-                  <a key={n.href} href={n.href} onClick={() => setOpen(false)} className="rounded-2xl px-4 py-3 font-display text-lg font-semibold text-ink hover:bg-seal-50">
+                  <Link key={n.href} href={n.href} onClick={() => setOpen(false)} className="rounded-2xl px-4 py-3 font-display text-lg font-semibold text-ink hover:bg-seal-50">
                     {n.label}
-                  </a>
+                  </Link>
                 ))}
               </nav>
               <div className="mt-4 grid grid-cols-2 gap-2">
                 <Button asChild variant="outline" size="lg">
-                  <Link href="/login/">Кабінет</Link>
+                  <Link href="/login/" onClick={() => setOpen(false)}>Кабінет</Link>
                 </Button>
                 <Button asChild size="lg">
-                  <a href="/#trial" onClick={() => setOpen(false)}>Пробний урок</a>
+                  <Link href="/#trial" onClick={() => setOpen(false)}>Пробний урок</Link>
                 </Button>
               </div>
             </motion.div>

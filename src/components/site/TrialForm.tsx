@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useForm } from "react-hook-form";
+import { useEffect, useState } from "react";
+import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowRight, Send, ShieldCheck, PartyPopper } from "lucide-react";
+import { ArrowRight, Send, ShieldCheck, PartyPopper, FlaskConical } from "lucide-react";
 import { Seal, type SealEmotion } from "@/components/mascot/Seal";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Segmented, Select, Textarea } from "@/components/ui/form";
@@ -17,7 +17,10 @@ const schema = z.object({
   phone: z
     .string()
     .trim()
-    .refine((v) => v.replace(/\D/g, "").length >= 10, "Перевірте номер телефону"),
+    .refine((v) => {
+      const n = v.replace(/\D/g, "").length;
+      return n >= 10 && n <= 15;
+    }, "Перевірте номер телефону"),
   age_group: z.enum(["kids", "teens", "adults"]),
   student_age: z.string().optional(),
   preferred_time: z.string().optional(),
@@ -25,7 +28,7 @@ const schema = z.object({
   level: z.string().optional(),
   telegram: z.string().optional(),
   comment: z.string().max(1000).optional(),
-  consent: z.boolean().refine((v) => v, "Потрібна згода на обробку даних"),
+  consent: z.boolean().refine((v) => v, "Потрібна ваша згода на обробку даних"),
   website: z.string().optional(),
 });
 type FormValues = z.infer<typeof schema>;
@@ -34,30 +37,35 @@ const GOALS = ["Розмовна англійська", "Школа / оцінк
 const TIMES = ["Ранок (9–12)", "День (12–16)", "Вечір (16–21)", "Вихідні", "Будь-коли"];
 const LEVELS = ["Не знаю", "Початківець (A0–A1)", "Базовий (A2)", "Середній (B1)", "Вище середнього (B2)", "Просунутий (C1+)"];
 
+/** Ukrainian numbers get the familiar grouping; numbers from abroad (a key segment) keep up to 15 digits (E.164). */
 function formatPhone(raw: string) {
   let d = raw.replace(/\D/g, "");
   if (d.startsWith("0")) d = "38" + d;
   if (!d) return "";
-  d = d.slice(0, 12);
-  const p = [d.slice(0, 2), d.slice(2, 5), d.slice(5, 8), d.slice(8, 10), d.slice(10, 12)].filter(Boolean);
-  return "+" + p.join(" ");
+  if (d.startsWith("380")) {
+    d = d.slice(0, 12);
+    const p = [d.slice(0, 2), d.slice(2, 5), d.slice(5, 8), d.slice(8, 10), d.slice(10, 12)].filter(Boolean);
+    return "+" + p.join(" ");
+  }
+  d = d.slice(0, 15);
+  return "+" + (d.match(/.{1,3}/g) ?? []).join(" ");
 }
 
 export function TrialSection() {
   const [emotion, setEmotion] = useState<SealEmotion>("happy");
   const [look, setLook] = useState<{ x: number; y: number } | null>(null);
   const [jump, setJump] = useState<number | undefined>();
-  const [done, setDone] = useState<{ no?: number } | null>(null);
+  const [done, setDone] = useState<{ no?: number; test?: string | null } | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
   const [bot, setBot] = useState<string | null>(null);
-  const startedAt = useRef(Date.now());
+  const [startedAt] = useState(() => Date.now());
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { age_group: "teens", consent: true, phone: "", name: "" },
+    defaultValues: { age_group: "teens", consent: false, phone: "", name: "" },
   });
-  const { register, handleSubmit, formState, watch, setValue } = form;
-  const ageGroup = watch("age_group");
+  const { register, handleSubmit, formState, setValue, control } = form;
+  const ageGroup = useWatch({ control, name: "age_group" });
 
   useEffect(() => {
     supabase
@@ -80,13 +88,13 @@ export function TrialSection() {
     setEmotion("neutral");
     try {
       const utm = Object.fromEntries(new URLSearchParams(window.location.search));
-      const res = await callFunction<{ ok: boolean; no?: number }>("lead", {
+      const res = await callFunction<{ ok: boolean; no?: number; level_test_token?: string | null }>("lead", {
         ...v,
         student_age: v.student_age ? Number(v.student_age) : undefined,
-        started_at: startedAt.current,
+        started_at: startedAt,
         utm,
       });
-      setDone({ no: res.no });
+      setDone({ no: res.no, test: res.level_test_token });
       setEmotion("joy");
       setLook(null);
       setJump((j) => (j ?? 0) + 1);
@@ -113,7 +121,7 @@ export function TrialSection() {
               <span className="eyebrow">🎁 Безкоштовно</span>
               <h2 className="mt-5 text-3xl leading-tight font-bold text-ocean-900 sm:text-4xl">Запишіться на пробний урок</h2>
               <p className="mt-3 max-w-lg text-ink-soft">
-                30–40 хвилин у Google Meet: знайомство, визначення рівня та план навчання. Менеджер зв&apos;яжеться протягом робочого дня.
+                Урок у Google Meet у міні-групі до 4 учасників (60 хв) або індивідуально (30 хв): знайомство, визначення рівня та план навчання. Менеджер зв&apos;яжеться протягом робочого дня.
               </p>
 
               <AnimatePresence mode="wait">
@@ -131,6 +139,15 @@ export function TrialSection() {
                     <p className="mt-2 text-ink-soft">
                       Ми вже отримали сповіщення і скоро зв&apos;яжемося, щоб узгодити час. Посилання на урок надішлемо в месенджер.
                     </p>
+                    {done.test && (
+                      <div className="mt-5 rounded-2xl bg-white p-4 ring-1 ring-seal-200">
+                        <div className="flex items-center gap-2 font-semibold text-ocean-900"><FlaskConical className="size-5 text-violet-500" /> Поки чекаєте — пройдіть тест рівня</div>
+                        <p className="mt-1 text-sm text-ink-soft">10 хвилин: 20 коротких питань і кілька речень про себе. Викладач підготує пробний урок під ваш рівень.</p>
+                        <Button asChild className="mt-3" size="md">
+                          <a href={`/level-test/?t=${done.test}`}>Пройти тест рівня <ArrowRight /></a>
+                        </Button>
+                      </div>
+                    )}
                     <div className="mt-6 flex flex-wrap gap-3">
                       {bot && (
                         <Button asChild variant="ocean">
@@ -143,7 +160,7 @@ export function TrialSection() {
                         variant="outline"
                         onClick={() => {
                           setDone(null);
-                          form.reset({ age_group: "teens", consent: true, name: "", phone: "" });
+                          form.reset({ age_group: "teens", consent: false, name: "", phone: "" });
                           setEmotion("happy");
                           setLook(null);
                         }}
@@ -156,7 +173,7 @@ export function TrialSection() {
                   <motion.form
                     key="form"
                     exit={{ opacity: 0, y: -10 }}
-                    onSubmit={handleSubmit(onSubmit, onInvalid)}
+                    onSubmit={(e) => handleSubmit(onSubmit, onInvalid)(e)}
                     onBlur={() => setLook(null)}
                     className="mt-8 grid gap-5"
                     noValidate
@@ -198,7 +215,7 @@ export function TrialSection() {
                           id="t-phone"
                           type="tel"
                           inputMode="tel"
-                          placeholder="+38 067 123 45 67"
+                          placeholder="+38 067 123 45 67 або +48 …"
                           autoComplete="tel"
                           aria-invalid={!!formState.errors.phone}
                           {...register("phone", {
@@ -240,13 +257,13 @@ export function TrialSection() {
                     </Field>
 
                     <label className="flex items-start gap-3 text-sm text-ink-soft">
-                      <input type="checkbox" className="mt-0.5 size-4.5 accent-seal-600" {...register("consent")} />
+                      <input type="checkbox" className="mt-0.5 size-4.5 accent-seal-600" aria-invalid={!!formState.errors.consent} aria-describedby={formState.errors.consent ? "t-consent-error" : undefined} {...register("consent")} />
                       <span>
-                        Погоджуюсь з <a href="/privacy/" className="font-semibold text-seal-700 underline-offset-2 hover:underline">політикою конфіденційності</a> та обробкою персональних даних
+                        Погоджуюсь з <a href="/privacy/" className="font-semibold text-seal-700 underline-offset-2 hover:underline">політикою конфіденційності</a> та обробкою персональних даних. Якщо учню менше 18 — заявку залишає один із батьків або законний представник.
                       </span>
                     </label>
-                    {formState.errors.consent && <p className="-mt-3 text-xs font-medium text-coral-600">{formState.errors.consent.message}</p>}
-                    {serverError && <p className="rounded-2xl bg-coral-50 px-4 py-3 text-sm font-medium text-coral-700">{serverError}</p>}
+                    {formState.errors.consent && <p id="t-consent-error" role="alert" className="-mt-3 text-xs font-medium text-coral-600">{formState.errors.consent.message}</p>}
+                    {serverError && <p role="alert" className="rounded-2xl bg-coral-50 px-4 py-3 text-sm font-medium text-coral-700">{serverError}</p>}
 
                     <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
                       <Button type="submit" size="xl" loading={formState.isSubmitting} className="w-full sm:w-auto">

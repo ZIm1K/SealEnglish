@@ -4,6 +4,7 @@ import {
   setSecret, setSetting, siteUrl, type Profile, type Role,
 } from "../_shared/core.ts";
 import { googleConfigured } from "../_shared/google.ts";
+import { AI_DEFAULTS, aiSettings, Anthropic, type AiSettings } from "../_shared/ai.ts";
 import { sendMessage, tg } from "../_shared/telegram.ts";
 
 // deno-lint-ignore no-explicit-any
@@ -22,7 +23,8 @@ function assertRoleAllowed(me: Profile, role: Role) {
   if (role === "admin" && me.role !== "admin") throw new HttpError(403, "Призначати адміністраторів може лише адміністратор");
 }
 
-async function createAccount(me: Profile, input: Any) {
+/** `trusted` carries server-derived fields (Telegram link of a converted lead) — never taken from the request body. */
+async function createAccount(me: Profile, input: Any, trusted: { telegram_chat_id?: number | null; telegram_username?: string | null } = {}) {
   const email = String(input.email ?? "").trim().toLowerCase();
   const fullName = String(input.full_name ?? "").trim();
   const role = (input.role ?? "student") as Role;
@@ -48,8 +50,8 @@ async function createAccount(me: Profile, input: Any) {
     phone: input.phone || null,
     level: input.level || null,
     age_group: input.age_group || null,
-    telegram_chat_id: input.telegram_chat_id ?? null,
-    telegram_username: input.telegram_username ?? null,
+    telegram_chat_id: trusted.telegram_chat_id ?? null,
+    telegram_username: trusted.telegram_username ?? null,
   }).eq("id", id);
   if (pErr) throw pErr;
   const groupIds: string[] = Array.isArray(input.group_ids) ? input.group_ids : [];
@@ -60,13 +62,15 @@ async function createAccount(me: Profile, input: Any) {
 }
 
 async function integrationsStatus() {
-  const [botUsername, tgToken, googleAccount, gClient, gSecret, gConnected] = await Promise.all([
+  const [botUsername, tgToken, googleAccount, gClient, gSecret, gConnected, aiKey, ai] = await Promise.all([
     getSetting<string>("telegram_bot_username"),
     getSecret("telegram_bot_token"),
     getSetting<Any>("google_account"),
     getSecret("google_client_id"),
     getSecret("google_client_secret"),
     googleConfigured(),
+    getSecret("anthropic_api_key"),
+    aiSettings(),
   ]);
   let webhook: Any = null;
   if (tgToken) webhook = (await tg("getWebhookInfo", {}))?.result ?? null;
@@ -85,8 +89,73 @@ async function integrationsStatus() {
       account: googleAccount,
       redirect_uri: `${functionsUrl()}/google-oauth`,
     },
+    ai: { configured: !!aiKey, key_hint: aiKey ? `…${aiKey.slice(-4)}` : null, enabled: ai.enabled },
     site_url: await siteUrl(),
   };
+}
+
+async function saveAiKey(key: string) {
+  key = key.trim();
+  if (!/^sk-ant-[\w-]{20,}$/.test(key)) throw new HttpError(422, "Схоже, це не ключ Anthropic API (має починатися з sk-ant-)");
+  const settings = await aiSettings();
+  try {
+    await new Anthropic({ apiKey: key, maxRetries: 1, timeout: 20_000 }).models.retrieve(settings.model_fast);
+  } catch (e) {
+    if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) {
+      throw new HttpError(422, "Anthropic не прийняв ключ. Перевірте його в console.anthropic.com");
+    }
+    if (e instanceof Anthropic.NotFoundError) throw new HttpError(422, `Модель ${settings.model_fast} недоступна для цього ключа`);
+    throw new HttpError(502, "Не вдалося перевірити ключ. Спробуйте ще раз.");
+  }
+  await setSecret("anthropic_api_key", key);
+  await setSetting("ai_configured", true);
+  return { ok: true };
+}
+
+const num = (v: unknown, min: number, max: number, fallback: number) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.min(Math.max(n, min), max) : fallback;
+};
+
+/** Admin edits limits/models/feature flags; values are clamped so a typo can't open the budget. */
+async function saveAiSettings(input: Any): Promise<AiSettings> {
+  const cur = await aiSettings();
+  const bool = (k: keyof AiSettings) => (typeof input[k] === "boolean" ? input[k] : cur[k]) as boolean;
+  const model = (v: unknown, fallback: string) => (typeof v === "string" && /^claude-[a-z0-9.-]+$/.test(v) ? v : fallback);
+  const pricing: AiSettings["pricing"] = { ...cur.pricing };
+  for (const [m, p] of Object.entries((input.pricing ?? {}) as Record<string, Any>)) {
+    if (!/^claude-[a-z0-9.-]+$/.test(m)) continue;
+    pricing[m] = {
+      input: num(p?.input, 0, 1000, 0), output: num(p?.output, 0, 1000, 0),
+      cache_read: num(p?.cache_read, 0, 1000, 0), cache_write: num(p?.cache_write, 0, 1000, 0),
+    };
+  }
+  const next: AiSettings = {
+    ...cur,
+    enabled: bool("enabled"),
+    tutor_enabled: bool("tutor_enabled"),
+    review_enabled: bool("review_enabled"),
+    lesson_enabled: bool("lesson_enabled"),
+    risk_enabled: bool("risk_enabled"),
+    parent_reports_enabled: bool("parent_reports_enabled"),
+    level_test_enabled: bool("level_test_enabled"),
+    night_reply_enabled: bool("night_reply_enabled"),
+    model_main: model(input.model_main, cur.model_main),
+    model_fast: model(input.model_fast, cur.model_fast),
+    tutor_daily_messages: Math.round(num(input.tutor_daily_messages, 0, 500, cur.tutor_daily_messages)),
+    tutor_daily_usd: num(input.tutor_daily_usd, 0, 20, cur.tutor_daily_usd),
+    global_daily_usd: num(input.global_daily_usd, 0, 1000, cur.global_daily_usd),
+    practice_retention_days: Math.round(num(input.practice_retention_days, 7, 365, cur.practice_retention_days)),
+    usd_rate: num(input.usd_rate, 1, 1000, cur.usd_rate),
+    avg_check_uah: num(input.avg_check_uah, 1, 1_000_000, cur.avg_check_uah),
+    pilot_group_ids: Array.isArray(input.pilot_group_ids)
+      ? input.pilot_group_ids.filter((g: unknown) => typeof g === "string" && /^[0-9a-f-]{36}$/.test(g)).slice(0, 50)
+      : cur.pilot_group_ids,
+    pricing,
+  };
+  if (next.enabled && !(await getSecret("anthropic_api_key"))) throw new HttpError(422, "Спочатку збережіть ключ Anthropic API");
+  await setSetting("ai_settings", next);
+  return next;
 }
 
 async function saveTelegram(token: string) {
@@ -160,12 +229,10 @@ Deno.serve(handle(async (req) => {
         phone: lead.phone,
         role: "student",
         age_group: lead.age_group,
-        level: input.level ?? null,
+        level: input.level ?? lead.level_estimate ?? null,
         group_ids: input.group_ids,
         password: input.password,
-        telegram_chat_id: chat,
-        telegram_username: chat ? lead.telegram_username : null,
-      });
+      }, { telegram_chat_id: chat, telegram_username: chat ? lead.telegram_username : null });
       await admin.from("leads").update({ status: "won", converted_profile_id: acc.id, manager_id: lead.manager_id ?? me.id }).eq("id", lead.id);
       await admin.from("lead_events").insert({ lead_id: lead.id, kind: "status", from_status: lead.status, to_status: "won", actor_id: me.id, body: `Створено акаунт учня ${acc.email}` });
       if (chat) {
@@ -239,6 +306,41 @@ Deno.serve(handle(async (req) => {
       const res = await sendMessage(me.telegram_chat_id, "✅ Тестове повідомлення: бот Seal English працює 🦭");
       if (!res?.ok) throw new HttpError(502, res?.description ?? "Бот не налаштовано");
       return json({ ok: true });
+    }
+
+    case "save_ai_key":
+      adminOnly();
+      return json(await saveAiKey(String(input.key ?? "")));
+
+    case "remove_ai_key": {
+      adminOnly();
+      await setSecret("anthropic_api_key", null);
+      await setSetting("ai_configured", false);
+      const cur = await aiSettings();
+      await setSetting("ai_settings", { ...cur, enabled: false });
+      return json({ ok: true });
+    }
+
+    case "ai_settings":
+      adminOnly();
+      return json({ ...AI_DEFAULTS, ...(await aiSettings()) });
+
+    case "save_ai_settings":
+      adminOnly();
+      return json(await saveAiSettings(input.settings ?? {}));
+
+    case "save_payout_rates": {
+      adminOnly();
+      const r = input.rates ?? {};
+      const rates = {
+        group_base: num(r.group_base, 0, 100_000, 180),
+        group_per_student: num(r.group_per_student, 0, 100_000, 30),
+        individual: num(r.individual, 0, 100_000, 250),
+        trial_individual: num(r.trial_individual, 0, 100_000, 150),
+        trial_group_per_lead: num(r.trial_group_per_lead, 0, 100_000, 90),
+      };
+      await setSetting("payout_rates", rates, false);
+      return json(rates);
     }
 
     case "save_google_client": {

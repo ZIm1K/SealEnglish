@@ -130,8 +130,8 @@ export function Hero() {
             transition={{ duration: 0.7, delay: 0.16 }}
             className="mt-6 max-w-xl text-lg leading-relaxed text-seal-100/80 text-pretty"
           >
-            Живі уроки з викладачем у Google Meet, теми, які справді цікаві, і особистий кабінет з розкладом та домашкою.
-            Для підлітків, а ще — для дітей і дорослих.
+            Англійська, якою підліток говорить щотижня, а не лише на уроці: живий викладач у Google Meet, теми, які справді цікаві,
+            кабінет з розкладом і домашкою та практика з ШІ-тренером Сілі між уроками.
           </motion.p>
           <motion.div
             initial={{ opacity: 0, y: 24 }}
@@ -156,7 +156,7 @@ export function Hero() {
           >
             {[
               { icon: Gift, text: "Перший урок — безкоштовно" },
-              { icon: Users, text: "Міні-групи до 6 учнів" },
+              { icon: Users, text: "Міні-групи 4–6 учнів" },
               { icon: Video, text: "Уроки в Google Meet" },
             ].map(({ icon: Icon, text }) => (
               <motion.li key={text} variants={{ hidden: { opacity: 0, y: 8 }, show: { opacity: 1, y: 0 } }} className="flex items-center gap-2">

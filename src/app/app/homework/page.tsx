@@ -148,6 +148,7 @@ function NewAssignmentForm({ onDone }: { onDone: () => void }) {
 
   const create = useMutation({
     mutationFn: async () => {
+      if (due && new Date(due).getTime() < Date.now() && !confirm("Дедлайн уже минув. Все одно створити завдання?")) throw new Error("Скасовано");
       const attachments = files.length ? await uploadFiles("homework", `t/${me.id}`, files) : [];
       const { data, error } = await supabase
         .from("assignments")
@@ -171,7 +172,7 @@ function NewAssignmentForm({ onDone }: { onDone: () => void }) {
       qc.invalidateQueries({ queryKey: ["assignments"] });
       onDone();
     },
-    onError: (e: Error) => toast.error(e.message.includes("row-level") ? "Можна задавати ДЗ лише своїм групам і учням" : e.message),
+    onError: (e: Error) => e.message !== "Скасовано" && toast.error(e.message.includes("row-level") ? "Можна задавати ДЗ лише своїм групам і учням" : e.message),
   });
 
   return (
@@ -185,7 +186,7 @@ function NewAssignmentForm({ onDone }: { onDone: () => void }) {
         >
           <div className="grid gap-5 sm:grid-cols-[auto_1fr]">
             <Field label="Кому">
-              <Segmented value={type} onChange={(v) => { setType(v); setTarget(""); }} options={[{ value: "group", label: "Групі" }, { value: "student", label: "Учню" }]} />
+              <Segmented value={type} onChange={(v) => { setType(v); setTarget(""); }} label="Кому" options={[{ value: "group", label: "Групі" }, { value: "student", label: "Учню" }]} />
             </Field>
             <Field label={type === "group" ? "Група" : "Учень"}>
               <Select value={target} onChange={(e) => setTarget(e.target.value)} required>
@@ -200,7 +201,7 @@ function NewAssignmentForm({ onDone }: { onDone: () => void }) {
           <Field label="Опис завдання"><Textarea rows={5} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Що потрібно зробити, вимоги, посилання…" /></Field>
           <div className="grid gap-5 sm:grid-cols-2">
             <Field label="Дедлайн" hint="необов'язково"><Input type="datetime-local" value={due} onChange={(e) => setDue(e.target.value)} /></Field>
-            <Field label="Максимальний бал"><Input type="number" min={1} max={100} value={maxScore} onChange={(e) => setMaxScore(Number(e.target.value))} /></Field>
+            <Field label="Максимальний бал"><Input type="number" min={1} max={100} value={maxScore} onChange={(e) => setMaxScore(Math.min(100, Math.max(1, Number(e.target.value) || 1)))} /></Field>
           </div>
           <Field label="Файли" hint="необов'язково"><FilePicker files={files} onChange={setFiles} /></Field>
           <div className="flex justify-end gap-2">

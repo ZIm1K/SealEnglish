@@ -54,12 +54,18 @@ function ProfileCard({ onSaved }: { onSaved: () => Promise<void> }) {
 
   const uploadAvatar = async (file?: File) => {
     if (!file) return;
+    if (!file.type.startsWith("image/")) return toast.error("Оберіть зображення (JPG, PNG або WebP)");
     if (file.size > 2 * 1024 * 1024) return toast.error("Фото має бути до 2 МБ");
-    const path = `${me.id}/avatar-${Date.now()}.${file.name.split(".").pop() ?? "jpg"}`;
+    const ext = (file.name.split(".").pop() ?? "jpg").toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
+    const path = `${me.id}/avatar-${Date.now()}.${ext}`;
     const { error } = await supabase.storage.from("avatars").upload(path, file, { upsert: true, contentType: file.type });
     if (error) return toast.error(error.message);
     const url = supabase.storage.from("avatars").getPublicUrl(path).data.publicUrl;
-    await supabase.from("profiles").update({ avatar_url: url }).eq("id", me.id);
+    const { error: pErr } = await supabase.from("profiles").update({ avatar_url: url }).eq("id", me.id);
+    if (pErr) return toast.error(pErr.message);
+    // remove the previous file so old photos don't pile up in storage
+    const old = me.avatar_url?.split("/avatars/")[1];
+    if (old && old !== path) await supabase.storage.from("avatars").remove([decodeURIComponent(old)]);
     await onSaved();
     toast.success("Фото оновлено");
   };
@@ -107,11 +113,18 @@ function TelegramCard({ onChanged }: { onChanged: () => Promise<void> }) {
     },
   });
 
-  // poll until the bot confirms the link
+  // poll until the bot confirms the link (the code expires in 15 minutes — stop polling then)
   useEffect(() => {
     if (!link || me.telegram_chat_id) return;
     const t = setInterval(() => onChanged(), 3000);
-    return () => clearInterval(t);
+    const stop = setTimeout(() => {
+      clearInterval(t);
+      setLink(null);
+    }, 15 * 60_000);
+    return () => {
+      clearInterval(t);
+      clearTimeout(stop);
+    };
   }, [link, me.telegram_chat_id, onChanged]);
 
   const connect = async () => {
@@ -123,13 +136,16 @@ function TelegramCard({ onChanged }: { onChanged: () => Promise<void> }) {
   };
 
   const unlink = async () => {
-    await supabase.rpc("unlink_telegram");
+    if (!confirm("Відключити Telegram? Сповіщення перестануть надходити.")) return;
+    const { error } = await supabase.rpc("unlink_telegram");
+    if (error) return toast.error(error.message);
     await onChanged();
     toast.success("Telegram відключено");
   };
 
   const toggle = async (v: boolean) => {
-    await supabase.from("profiles").update({ notify_telegram: v }).eq("id", me.id);
+    const { error } = await supabase.from("profiles").update({ notify_telegram: v }).eq("id", me.id);
+    if (error) return toast.error(error.message);
     await onChanged();
   };
 

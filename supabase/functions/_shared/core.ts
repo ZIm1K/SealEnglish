@@ -22,7 +22,7 @@ export const admin: SupabaseClient = createClient(SUPABASE_URL, secretKey(), {
 
 export const cors = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-internal-secret",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 
@@ -39,6 +39,17 @@ export class HttpError extends Error {
   }
 }
 
+/** Unexpected failures are also written to `error_log`, so the admin sees them in the cabinet (NFR-10). */
+export async function logError(source: string, e: unknown, context: Record<string, unknown> = {}): Promise<void> {
+  const message = e instanceof Error ? e.message : typeof e === "string" ? e : JSON.stringify(e);
+  console.error(source, e);
+  try {
+    await admin.from("error_log").insert({ source, message: String(message).slice(0, 2000), context });
+  } catch {
+    // logging must never break the request
+  }
+}
+
 export function handle(fn: (req: Request) => Promise<Response>) {
   return async (req: Request): Promise<Response> => {
     if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
@@ -46,10 +57,18 @@ export function handle(fn: (req: Request) => Promise<Response>) {
       return await fn(req);
     } catch (e) {
       if (e instanceof HttpError) return json({ error: e.message }, e.status);
-      console.error(e);
+      await logError(new URL(req.url).pathname.split("/").filter(Boolean).pop() ?? "function", e);
       return json({ error: "Внутрішня помилка сервера. Спробуйте ще раз." }, 500);
     }
   };
+}
+
+/** Calls from the database (pg_net) carry the internal secret instead of a user JWT. */
+export async function isInternal(req: Request): Promise<boolean> {
+  const given = req.headers.get("x-internal-secret");
+  if (!given) return false;
+  const secret = await getSecret("internal_secret");
+  return !!secret && timingSafeEqual(given, secret);
 }
 
 export async function readJson<T = Record<string, unknown>>(req: Request): Promise<T> {

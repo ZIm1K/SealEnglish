@@ -19,7 +19,7 @@ export function SiteFooter() {
           <h3 className="font-display text-sm font-semibold text-white">Навігація</h3>
           <ul className="mt-4 grid gap-2.5 text-sm">
             {NAV.map((n) => (
-              <li key={n.href}><a href={n.href} className="transition hover:text-white">{n.label}</a></li>
+              <li key={n.href}><Link href={n.href} className="transition hover:text-white">{n.label}</Link></li>
             ))}
           </ul>
         </div>
@@ -27,7 +27,7 @@ export function SiteFooter() {
           <h3 className="font-display text-sm font-semibold text-white">Учням</h3>
           <ul className="mt-4 grid gap-2.5 text-sm">
             <li><Link href="/login/" className="transition hover:text-white">Особистий кабінет</Link></li>
-            <li><a href="/#trial" className="transition hover:text-white">Пробний урок</a></li>
+            <li><Link href="/#trial" className="transition hover:text-white">Пробний урок</Link></li>
             <li><Link href="/privacy/" className="transition hover:text-white">Політика конфіденційності</Link></li>
             <li><Link href="/offer/" className="transition hover:text-white">Публічна оферта</Link></li>
           </ul>

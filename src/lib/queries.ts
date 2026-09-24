@@ -2,10 +2,10 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "./supabase";
-import type { Assignment, Group, Lesson, Profile, Role } from "./types";
+import type { AiFeatures, Assignment, Group, Lesson, Profile, Role } from "./types";
 
 export const LESSON_SELECT =
-  "*, teacher:profiles!lessons_teacher_id_fkey(id, full_name, avatar_url), student:profiles!lessons_student_id_fkey(id, full_name, avatar_url), group:groups(id, name, color), lead:leads!lessons_lead_id_fkey(id, name, phone)";
+  "*, teacher:profiles!lessons_teacher_id_fkey(id, full_name, avatar_url), student:profiles!lessons_student_id_fkey(id, full_name, avatar_url), group:groups(id, name, color), lesson_leads(lead_id, attended, lead:leads(id, name, phone, status))";
 
 export async function fetchLessons(from: Date, to: Date, opts: { teacherId?: string } = {}) {
   let q = supabase
@@ -71,9 +71,27 @@ export function useAssignments() {
 }
 
 /** Human label for who a lesson/assignment is for. */
-export function targetLabel(x: { group?: { name: string } | null; student?: { full_name: string } | null; lead?: { name: string } | null }) {
+export function targetLabel(x: {
+  group?: { name: string } | null;
+  student?: { full_name: string } | null;
+  lesson_leads?: { lead?: { name: string } | null }[];
+}) {
   if (x.group) return x.group.name;
   if (x.student) return x.student.full_name;
-  if (x.lead) return `Пробний · ${x.lead.name}`;
+  const leads = (x.lesson_leads ?? []).map((l) => l.lead?.name).filter(Boolean);
+  if (leads.length) return `Пробний · ${leads.join(", ")}`;
   return "—";
+}
+
+/** AI feature flags for the signed-in user (server decides: settings, key, pilot groups, daily limit). */
+export function useAiFeatures() {
+  return useQuery({
+    queryKey: ["ai-features"],
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("ai_features");
+      if (error) return null;
+      return data as AiFeatures | null;
+    },
+  });
 }

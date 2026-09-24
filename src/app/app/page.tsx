@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { addDays, startOfDay } from "date-fns";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, BookOpen, CalendarPlus, Inbox, Send, Sparkles, Users, UsersRound, CalendarDays, ClipboardCheck, FilePlus2 } from "lucide-react";
+import { ArrowRight, BookOpen, CalendarPlus, Inbox, Send, Sparkles, Users, UsersRound, CalendarDays, ClipboardCheck, FilePlus2, MessagesSquare, TrendingDown } from "lucide-react";
 import { useMe, isStaffRole } from "@/components/app/session";
 import { EmptyState } from "@/components/app/AppShell";
 import { JoinButton, LessonDialog, LessonRow, NewLessonDialog } from "@/components/app/lessons";
@@ -12,9 +12,9 @@ import { Seal } from "@/components/mascot/Seal";
 import { Button } from "@/components/ui/button";
 import { Avatar, Badge, Card, CardHeader, Skeleton } from "@/components/ui/misc";
 import { supabase } from "@/lib/supabase";
-import { useAssignments, useLessons, targetLabel } from "@/lib/queries";
+import { useAiFeatures, useAssignments, useLessons, targetLabel } from "@/lib/queries";
 import { countdown, fmtDateTime, fmtRelativeDay, fmtTime } from "@/lib/dates";
-import { LEAD_STATUS, SUBMISSION_STATUS, type Lead, type Lesson } from "@/lib/types";
+import { LEAD_STATUS, SUBMISSION_STATUS, type Lead, type Lesson, type RiskRow } from "@/lib/types";
 
 function greeting() {
   const h = new Date().getHours();
@@ -28,7 +28,9 @@ export default function Dashboard() {
   const me = useMe();
   const today = useMemo(() => startOfDay(new Date()), []);
   const { data: lessons = [], isLoading } = useLessons(today, addDays(today, 14), me.role === "teacher" ? { teacherId: me.id } : {});
-  const upcoming = lessons.filter((l) => l.status === "scheduled" && new Date(l.ends_at) > new Date());
+  const [now] = useState(() => Date.now());
+  const upcoming = lessons.filter((l) => l.status === "scheduled" && new Date(l.ends_at).getTime() > now);
+  const todayCount = lessons.filter((l) => l.status !== "cancelled" && new Date(l.starts_at).toDateString() === today.toDateString()).length;
   const next = upcoming[0];
   const [open, setOpen] = useState<Lesson | null>(null);
 
@@ -36,7 +38,7 @@ export default function Dashboard() {
     <div className="grid gap-6">
       <Hello next={next} />
       {me.role === "student" && <StudentBoard upcoming={upcoming} loading={isLoading} onOpen={setOpen} />}
-      {me.role === "teacher" && <TeacherBoard upcoming={upcoming} loading={isLoading} onOpen={setOpen} />}
+      {me.role === "teacher" && <TeacherBoard upcoming={upcoming} todayCount={todayCount} loading={isLoading} onOpen={setOpen} />}
       {isStaffRole(me.role) && <StaffBoard upcoming={upcoming} loading={isLoading} onOpen={setOpen} />}
       <LessonDialog lesson={open} onClose={() => setOpen(null)} />
     </div>
@@ -108,6 +110,7 @@ function UpcomingCard({ upcoming, loading, onOpen, title = "Найближчі �
 // ───────────── student ─────────────
 function StudentBoard({ upcoming, loading, onOpen }: { upcoming: Lesson[]; loading: boolean; onOpen: (l: Lesson) => void }) {
   const me = useMe();
+  const { data: ai } = useAiFeatures();
   const { data: assignments = [], isLoading } = useAssignments();
   const open = assignments.filter((a) => {
     const s = a.submissions?.find((x) => x.student_id === me.id);
@@ -122,6 +125,16 @@ function StudentBoard({ upcoming, loading, onOpen }: { upcoming: Lesson[]; loadi
     <div className="grid gap-6 lg:grid-cols-[1.3fr_1fr]">
       <UpcomingCard upcoming={upcoming} loading={loading} onOpen={onOpen} />
       <div className="grid gap-6">
+        {ai?.tutor && (
+          <Link href="/app/practice/" className="card group flex items-center gap-4 overflow-hidden bg-gradient-to-br from-violet-50 to-seal-50 p-5 transition hover:shadow-lift">
+            <div className="w-16 shrink-0"><Seal crop="head" emotion="wink" idle={false} /></div>
+            <div className="min-w-0 flex-1">
+              <div className="font-display font-semibold text-ocean-900">Потренуйся з Сілі 🦭</div>
+              <div className="text-sm text-ink-soft">Коротка практика на матеріалі твого уроку · сьогодні ще {ai.tutor_messages_left} повідомлень</div>
+            </div>
+            <MessagesSquare className="size-6 shrink-0 text-violet-500 transition group-hover:translate-x-0.5" />
+          </Link>
+        )}
         <Card>
           <CardHeader title="Домашні завдання" description={open.length ? `${open.length} до виконання` : "Все здано ✨"} action={<Button asChild variant="ghost" size="sm"><Link href="/app/homework/">Усі <ArrowRight /></Link></Button>} />
           <div className="grid gap-2 p-5 sm:p-6">
@@ -162,12 +175,11 @@ function StudentBoard({ upcoming, loading, onOpen }: { upcoming: Lesson[]; loadi
 }
 
 // ───────────── teacher ─────────────
-function TeacherBoard({ upcoming, loading, onOpen }: { upcoming: Lesson[]; loading: boolean; onOpen: (l: Lesson) => void }) {
+function TeacherBoard({ upcoming, todayCount, loading, onOpen }: { upcoming: Lesson[]; todayCount: number; loading: boolean; onOpen: (l: Lesson) => void }) {
   const me = useMe();
   const [creating, setCreating] = useState(false);
   const { data: assignments = [] } = useAssignments();
   const toReview = assignments.filter((a) => a.teacher_id === me.id).flatMap((a) => (a.submissions ?? []).filter((s) => s.status === "submitted").map((s) => ({ a, s })));
-  const todayCount = upcoming.filter((l) => new Date(l.starts_at).toDateString() === new Date().toDateString()).length;
 
   return (
     <>
@@ -207,6 +219,37 @@ function TeacherBoard({ upcoming, loading, onOpen }: { upcoming: Lesson[]; loadi
 }
 
 // ───────────── staff ─────────────
+function RiskCard() {
+  const { data: ai } = useAiFeatures();
+  const { data: risk = [] } = useQuery({
+    queryKey: ["risk-overview"],
+    enabled: !!ai?.risk,
+    queryFn: async () => {
+      const { data } = await supabase.rpc("risk_overview");
+      return ((data ?? []) as RiskRow[]).sort((a, b) => b.score - a.score);
+    },
+  });
+  const high = risk.filter((r) => r.score >= 40).slice(0, 5);
+  if (!ai?.risk) return null;
+  return (
+    <Card>
+      <CardHeader title="Ризик відтоку" description="Оновлюється щоночі: пропуски, ДЗ, практика" action={<Button asChild variant="ghost" size="sm"><Link href="/app/people/?risk=1">Усі <ArrowRight /></Link></Button>} />
+      <div className="grid gap-2 p-5 sm:p-6">
+        {high.length === 0 ? <p className="py-4 text-center text-sm text-mute">Учнів із помітним ризиком немає 🎉</p> : high.map((r) => (
+          <Link key={r.student_id} href={`/app/people/?student=${r.student_id}`} className="flex items-center gap-3 rounded-2xl border border-line p-3 transition hover:border-seal-300">
+            <Avatar name={r.full_name} size={32} />
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-semibold">{r.full_name}</div>
+              <div className="line-clamp-1 text-xs text-mute">{r.explanation ?? `пропусків ${r.signals.absent ?? 0}, не здано ДЗ ${r.signals.hw_missed ?? 0}`}</div>
+            </div>
+            <Badge tone={r.score >= 60 ? "red" : "sun"}><TrendingDown className="size-3" /> {r.score}</Badge>
+          </Link>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
 function StaffBoard({ upcoming, loading, onOpen }: { upcoming: Lesson[]; loading: boolean; onOpen: (l: Lesson) => void }) {
   const { data: stats } = useQuery({
     queryKey: ["staff-overview"],
@@ -257,6 +300,7 @@ function StaffBoard({ upcoming, loading, onOpen }: { upcoming: Lesson[]; loading
         </Card>
         <UpcomingCard upcoming={upcoming} loading={loading} onOpen={onOpen} title="Уроки школи" showTeacher />
       </div>
+      <RiskCard />
     </>
   );
 }

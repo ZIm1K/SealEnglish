@@ -17,7 +17,7 @@ export function Platform() {
           dark
           eyebrow="Платформа"
           title={<>Усе навчання — <span className="text-gradient">в одному місці</span></>}
-          text="Особистий кабінет для учнів, батьків і викладачів: розклад з кнопкою «Приєднатися», домашні завдання з перевіркою, матеріали уроків. А Telegram-бот нагадає про все вчасно."
+          text="Особистий кабінет для учнів і викладачів: розклад з кнопкою «Приєднатися», домашні завдання з перевіркою, матеріали уроків і практика з ШІ-тренером. А Telegram-бот нагадає про все вчасно."
         />
 
         <div className="mt-16 grid items-start gap-6 lg:grid-cols-[1.45fr_1fr]">
@@ -122,7 +122,7 @@ export function Platform() {
             <div className="grid grid-cols-2 gap-4">
               {[
                 { k: "Google Meet", v: "посилання створюється автоматично" },
-                { k: "24/7", v: "матеріали й записи в кабінеті" },
+                { k: "Сілі 🦭", v: "ШІ-тренер для практики між уроками" },
               ].map((s) => (
                 <div key={s.k} className="glass-dark rounded-3xl p-5">
                   <div className="font-display text-xl font-bold text-seal-200">{s.k}</div>

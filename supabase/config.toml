@@ -2,7 +2,7 @@
 project_id = "nivxzpsstjphxkodhjzu"
 
 # All functions authenticate requests themselves (user JWT, Telegram secret header,
-# internal DB secret or Google OAuth state), so gateway JWT verification is off.
+# internal DB secret, Google OAuth state or a lead's level-test token), so gateway JWT verification is off.
 [functions.lead]
 verify_jwt = false
 
@@ -19,4 +19,19 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.google-oauth]
+verify_jwt = false
+
+[functions.ai-tutor]
+verify_jwt = false
+
+[functions.ai-review]
+verify_jwt = false
+
+[functions.ai-lesson]
+verify_jwt = false
+
+[functions.ai-risk]
+verify_jwt = false
+
+[functions.ai-level-test]
 verify_jwt = false

@@ -51,7 +51,6 @@ export interface Lesson {
   teacher_id: string;
   group_id: string | null;
   student_id: string | null;
-  lead_id: string | null;
   starts_at: string;
   ends_at: string;
   status: LessonStatus;
@@ -62,7 +61,13 @@ export interface Lesson {
   teacher?: ProfileLite | null;
   student?: ProfileLite | null;
   group?: Pick<Group, "id" | "name" | "color"> | null;
-  lead?: { id: string; name: string; phone: string | null } | null;
+  lesson_leads?: LessonLead[];
+}
+
+export interface LessonLead {
+  lead_id: string;
+  attended: boolean | null;
+  lead?: { id: string; name: string; phone: string | null; status: LeadStatus } | null;
 }
 
 export interface Lead {
@@ -85,6 +90,7 @@ export interface Lead {
   trial_lesson_id: string | null;
   converted_profile_id: string | null;
   lost_reason: string | null;
+  level_estimate: string | null;
   utm: Record<string, string>;
   created_at: string;
   updated_at: string;
@@ -163,6 +169,112 @@ export interface Submission {
   reviewed_at: string | null;
   student?: ProfileLite | null;
 }
+
+export type MistakeCategory = "grammar" | "vocabulary" | "spelling" | "word_order" | "punctuation" | "pronunciation" | "style" | "other";
+
+export interface MistakeItem {
+  category: MistakeCategory;
+  example: string;
+  correction: string;
+  explanation?: string | null;
+  student_id?: string | null;
+  student_name?: string | null;
+}
+
+export interface StudentMistake extends MistakeItem {
+  id: string;
+  student_id: string;
+  source: "lesson" | "homework" | "practice" | "teacher";
+  occurrences: number;
+  last_seen_at: string;
+  resolved_at: string | null;
+}
+
+export interface LessonSummary {
+  lesson_id: string;
+  notes: string | null;
+  vocabulary: { term: string; meaning?: string; example?: string }[];
+  grammar: { point: string; note?: string }[];
+  mistakes: MistakeItem[];
+  recap: string | null;
+  status: "draft" | "published";
+  published_at: string | null;
+  updated_at: string;
+}
+
+export interface SubmissionAiReview {
+  submission_id: string;
+  status: "pending" | "ready" | "approved" | "discarded" | "failed";
+  feedback: string | null;
+  score: number | null;
+  teacher_note: string | null;
+  mistakes: MistakeItem[];
+  error: string | null;
+  updated_at: string;
+}
+
+export interface PracticeSummary {
+  summary: string;
+  strengths: string[];
+  mistakes: MistakeItem[];
+  vocabulary_used: string[];
+  engagement: "low" | "medium" | "high";
+}
+
+export interface PracticeSession {
+  id: string;
+  student_id: string;
+  lesson_id: string | null;
+  topic: string | null;
+  started_at: string;
+  last_activity_at: string;
+  ended_at: string | null;
+  turns: number;
+  summary: PracticeSummary | null;
+  flagged: boolean;
+  flag_reason: string | null;
+  reviewed_at: string | null;
+  student?: ProfileLite | null;
+}
+
+export interface PracticeTurn {
+  id: number;
+  role: "user" | "assistant";
+  content: string;
+  flagged: boolean;
+  created_at: string;
+}
+
+export interface AiFeatures {
+  enabled: boolean;
+  tutor: boolean;
+  review: boolean;
+  lesson: boolean;
+  risk: boolean;
+  parent_reports: boolean;
+  tutor_messages_left: number;
+}
+
+export interface RiskRow {
+  student_id: string;
+  full_name: string;
+  score: number;
+  signals: Record<string, number>;
+  explanation: string | null;
+  computed_on: string;
+  prev_score: number | null;
+}
+
+export const MISTAKE_LABEL: Record<MistakeCategory, string> = {
+  grammar: "Граматика",
+  vocabulary: "Лексика",
+  spelling: "Правопис",
+  word_order: "Порядок слів",
+  punctuation: "Пунктуація",
+  pronunciation: "Вимова",
+  style: "Стиль",
+  other: "Інше",
+};
 
 export interface Notification {
   id: string;

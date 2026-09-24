@@ -1,5 +1,6 @@
 // Public endpoint: trial-lesson request from the website.
-import { admin, clientIp, handle, HttpError, json, readJson } from "../_shared/core.ts";
+import { admin, clientIp, handle, HttpError, json, randomToken, readJson } from "../_shared/core.ts";
+import { aiSettings } from "../_shared/ai.ts";
 
 interface LeadInput {
   name?: string;
@@ -45,7 +46,8 @@ Deno.serve(handle(async (req) => {
   const phoneRaw = clean(body.phone, 32);
   const phone = phoneRaw ? phoneRaw.replace(/[^\d+]/g, "") : null;
   if (!name || name.length < 2) throw new HttpError(422, "Вкажіть, будь ласка, ім'я");
-  if (!phone || phone.replace(/\D/g, "").length < 9) throw new HttpError(422, "Перевірте номер телефону");
+  const digits = phone?.replace(/\D/g, "") ?? "";
+  if (!phone || digits.length < 9 || digits.length > 15) throw new HttpError(422, "Перевірте номер телефону");
 
   const email = clean(body.email, 120);
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new HttpError(422, "Перевірте email");
@@ -62,12 +64,15 @@ Deno.serve(handle(async (req) => {
   // Double-submit protection: same phone within 15 minutes → reuse.
   const { data: recent } = await admin
     .from("leads")
-    .select("no")
+    .select("no, level_test_token")
     .eq("phone", phone)
     .gte("created_at", new Date(Date.now() - 15 * 60_000).toISOString())
     .limit(1)
     .maybeSingle();
-  if (recent) return json({ ok: true, no: recent.no, duplicate: true });
+  if (recent) return json({ ok: true, no: recent.no, duplicate: true, level_test_token: recent.level_test_token });
+
+  // Phase 3: a one-time link to the placement test is issued only while the feature is on.
+  const levelTest = (await aiSettings()).level_test_enabled;
 
   const utm: Record<string, string> = {};
   for (const [k, v] of Object.entries(body.utm ?? {})) {
@@ -89,9 +94,10 @@ Deno.serve(handle(async (req) => {
       comment: clean(body.comment, 1000),
       source: "website",
       utm,
+      level_test_token: levelTest ? randomToken(20) : null,
     })
-    .select("no")
+    .select("no, level_test_token")
     .single();
   if (error) throw error;
-  return json({ ok: true, no: data.no });
+  return json({ ok: true, no: data.no, level_test_token: data.level_test_token });
 }));

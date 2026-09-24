@@ -1,17 +1,21 @@
-// Lessons: create (single / weekly series) with Google Meet, reschedule, cancel, delete.
+// Lessons: create (single / weekly series) with Google Meet, reschedule, cancel, delete;
+// trial lessons in a mini-group of up to 4 leads (FR-26): add / remove a lead, each lead keeps its own status.
 import {
   admin, fmtKyiv, handle, HttpError, isStaff, json, readJson, requireUser, zonedToUtc, type Profile,
 } from "../_shared/core.ts";
-import { createMeetEvent, deleteMeetEvent, googleConfigured, patchMeetEvent } from "../_shared/google.ts";
+import { addEventAttendees, createMeetEvent, deleteMeetEvent, googleConfigured, patchMeetEvent } from "../_shared/google.ts";
 import { esc, isPublicHttps, sendMessage } from "../_shared/telegram.ts";
 
 // deno-lint-ignore no-explicit-any
 type Any = any;
 
+const MAX_TRIAL_LEADS = 4;
+
 interface CreateInput {
   action: "create";
   teacher_id?: string;
-  target: { type: "student" | "group" | "lead"; id: string };
+  /** `lead` (one id) is kept for older clients; `leads` creates a group trial. */
+  target: { type: "student" | "group" | "lead" | "leads"; id?: string; ids?: string[] };
   date: string; // YYYY-MM-DD (Kyiv)
   time: string; // HH:MM (Kyiv)
   duration_min?: number;
@@ -53,24 +57,52 @@ async function participants(target: CreateInput["target"]) {
   if (target.type === "student") {
     const { data } = await admin.from("profiles").select("id, full_name, email, role, is_active").eq("id", target.id).maybeSingle();
     if (!data || data.role !== "student" || !data.is_active) throw new HttpError(422, "Учня не знайдено");
-    return { label: data.full_name, studentIds: [data.id], emails: [data.email].filter(Boolean) as string[], lead: null as Any };
+    return { label: data.full_name, studentIds: [data.id], emails: [data.email].filter(Boolean) as string[], leads: [] as Any[] };
   }
   if (target.type === "group") {
     const { data: g } = await admin.from("groups").select("id, name, teacher_id, is_archived").eq("id", target.id).maybeSingle();
     if (!g || g.is_archived) throw new HttpError(422, "Групу не знайдено");
     const { data: members } = await admin.from("group_members").select("student:profiles!group_members_student_id_fkey(id, email, is_active)").eq("group_id", g.id);
     const active = (members ?? []).map((m: Any) => m.student).filter((s: Any) => s?.is_active);
-    return { label: g.name, group: g, studentIds: active.map((s: Any) => s.id), emails: active.map((s: Any) => s.email).filter(Boolean), lead: null as Any };
+    return { label: g.name, group: g, studentIds: active.map((s: Any) => s.id), emails: active.map((s: Any) => s.email).filter(Boolean), leads: [] as Any[] };
   }
-  const { data: lead } = await admin.from("leads").select("*").eq("id", target.id).maybeSingle();
-  if (!lead) throw new HttpError(422, "Заявку не знайдено");
-  return { label: lead.name, studentIds: [] as string[], emails: [lead.email].filter(Boolean) as string[], lead };
+  const ids = [...new Set(target.type === "lead" ? [target.id] : target.ids ?? [])].filter(Boolean) as string[];
+  if (!ids.length) throw new HttpError(422, "Оберіть заявку");
+  if (ids.length > MAX_TRIAL_LEADS) throw new HttpError(422, `У пробній міні-групі максимум ${MAX_TRIAL_LEADS} учасники`);
+  const { data: leads } = await admin.from("leads").select("*").in("id", ids);
+  if (!leads || leads.length !== ids.length) throw new HttpError(422, "Заявку не знайдено");
+  return {
+    label: leads.length === 1 ? leads[0].name : `міні-група (${leads.length})`,
+    studentIds: [] as string[],
+    emails: leads.map((l: Any) => l.email).filter(Boolean) as string[],
+    leads,
+  };
+}
+
+/** Attaches a lead to a trial lesson: funnel status, timeline and a Telegram message with the Meet link. */
+async function attachLead(lead: Any, lesson: { id: string; starts_at: string; meet_url: string | null }, teacherName: string, me: Profile) {
+  const next = ["new", "contacted"].includes(lead.status) ? "trial_scheduled" : lead.status;
+  await admin.from("leads").update({
+    status: next,
+    trial_lesson_id: lesson.id,
+    manager_id: lead.manager_id ?? (isStaff(me) ? me.id : null),
+  }).eq("id", lead.id);
+  await admin.from("lead_events").insert({
+    lead_id: lead.id, kind: "trial", actor_id: me.id,
+    body: `Пробний урок ${fmtKyiv(lesson.starts_at)} · ${teacherName}`,
+    from_status: lead.status, to_status: next,
+  });
+  if (lead.telegram_chat_id) {
+    const kb = isPublicHttps(lesson.meet_url) ? { inline_keyboard: [[{ text: "🎥 Посилання на урок", url: lesson.meet_url }]] } : undefined;
+    await sendMessage(lead.telegram_chat_id, `🎁 <b>Пробний урок призначено!</b>\n\n🗓 ${esc(fmtKyiv(lesson.starts_at, { weekday: "long" }))}\n👩‍🏫 Викладач: ${esc(teacherName)}\n\nЯ нагадаю за годину до початку 🦭`, kb ? { reply_markup: kb } : {});
+  }
 }
 
 async function create(input: CreateInput, me: Profile) {
   const teacherId = isStaff(me) ? (input.teacher_id ?? me.id) : me.id;
   if (!isStaff(me) && input.teacher_id && input.teacher_id !== me.id) throw new HttpError(403, "Викладач може планувати лише власні уроки");
-  if (input.target?.type === "lead" && !isStaff(me)) throw new HttpError(403, "Пробні уроки призначає менеджер");
+  const trial = input.target?.type === "lead" || input.target?.type === "leads";
+  if (trial && !isStaff(me)) throw new HttpError(403, "Пробні уроки призначає менеджер");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date ?? "") || !/^\d{2}:\d{2}$/.test(input.time ?? "")) throw new HttpError(422, "Вкажіть дату й час");
 
   const { data: teacher } = await admin.from("profiles").select("id, full_name, email, role, meet_room_url, is_active").eq("id", teacherId).maybeSingle();
@@ -80,7 +112,7 @@ async function create(input: CreateInput, me: Profile) {
   if (input.target.type === "group" && !isStaff(me) && who.group?.teacher_id !== me.id) throw new HttpError(403, "Це не ваша група");
 
   const duration = Math.min(Math.max(Number(input.duration_min) || 60, 15), 240);
-  const weeks = Math.min(Math.max(Number(input.repeat_weeks) || 0, 0), 52);
+  const weeks = trial ? 0 : Math.min(Math.max(Number(input.repeat_weeks) || 0, 0), 52);
   const weekdays = [...new Set((input.weekdays?.length ? input.weekdays : [isoWeekday(input.date)]).filter((d) => d >= 1 && d <= 7))].sort();
 
   // Build occurrence dates: first week starts at `date`; include selected weekdays on/after it.
@@ -99,8 +131,8 @@ async function create(input: CreateInput, me: Profile) {
   if (!dates.length) throw new HttpError(422, "Немає жодної дати для уроку");
   if (dates.length > 104) throw new HttpError(422, "Забагато уроків в одній серії");
 
-  const kind = input.target.type === "lead" ? "trial" : "regular";
-  const title = input.title?.trim() || (kind === "trial" ? `Пробний урок · ${who.label}` : `Англійська · ${who.label}`);
+  const kind = trial ? "trial" : "regular";
+  const title = input.title?.trim() || (trial ? `Пробний урок · ${who.label}` : `Англійська · ${who.label}`);
   const seriesId = dates.length > 1 ? crypto.randomUUID() : null;
   const occurrences = dates.map((d) => {
     const start = zonedToUtc(d, input.time);
@@ -115,7 +147,7 @@ async function create(input: CreateInput, me: Profile) {
   if (google) {
     try {
       const attendees = [teacher.email, ...who.emails].filter(Boolean) as string[];
-      const description = `Seal English · ${kind === "trial" ? "пробний урок" : "урок англійської"}\nВикладач: ${teacher.full_name}`;
+      const description = `Seal English · ${trial ? "пробний урок" : "урок англійської"}\nВикладач: ${teacher.full_name}`;
       const first = await createMeetEvent({ summary: title, description, start: occurrences[0].start, end: occurrences[0].end, attendees, sendUpdates: !!input.send_invites });
       events[0] = { id: first.id, meetUrl: first.meetUrl };
       if (occurrences.length > 1) {
@@ -141,7 +173,6 @@ async function create(input: CreateInput, me: Profile) {
     teacher_id: teacher.id,
     group_id: input.target.type === "group" ? input.target.id : null,
     student_id: input.target.type === "student" ? input.target.id : null,
-    lead_id: input.target.type === "lead" ? input.target.id : null,
     starts_at: o.start.toISOString(),
     ends_at: o.end.toISOString(),
     meet_url: events[i].meetUrl,
@@ -163,32 +194,21 @@ async function create(input: CreateInput, me: Profile) {
   if (notify.length) {
     await admin.from("notifications").insert(notify.map((uid) => ({
       user_id: uid,
-      kind: kind === "trial" ? "trial_new" : "lesson_new",
-      title: kind === "trial" ? "Призначено пробний урок" : occurrences.length > 1 ? "Новий розклад уроків" : "Новий урок",
+      kind: trial ? "trial_new" : "lesson_new",
+      title: trial ? "Призначено пробний урок" : occurrences.length > 1 ? "Новий розклад уроків" : "Новий урок",
       body: `${title} · ${when}`,
       link: "/app/schedule/",
       data: { lesson_id: firstLesson.id, meet_url: firstLesson.meet_url },
     })));
   }
 
-  if (who.lead) {
-    await admin.from("leads").update({
-      status: ["new", "contacted"].includes(who.lead.status) ? "trial_scheduled" : who.lead.status,
-      trial_lesson_id: firstLesson.id,
-      manager_id: who.lead.manager_id ?? (isStaff(me) ? me.id : null),
-    }).eq("id", who.lead.id);
-    await admin.from("lead_events").insert({
-      lead_id: who.lead.id, kind: "trial", actor_id: me.id,
-      body: `Пробний урок ${fmtKyiv(occurrences[0].start)} · ${teacher.full_name}`,
-      from_status: who.lead.status, to_status: ["new", "contacted"].includes(who.lead.status) ? "trial_scheduled" : who.lead.status,
-    });
-    if (who.lead.telegram_chat_id) {
-      const kb = isPublicHttps(firstLesson.meet_url) ? { inline_keyboard: [[{ text: "🎥 Посилання на урок", url: firstLesson.meet_url }]] } : undefined;
-      await sendMessage(who.lead.telegram_chat_id, `🎁 <b>Пробний урок призначено!</b>\n\n🗓 ${esc(fmtKyiv(occurrences[0].start, { weekday: "long" }))}\n👩‍🏫 Викладач: ${esc(teacher.full_name)}\n\nЯ нагадаю за годину до початку 🦭`, kb ? { reply_markup: kb } : {});
-    }
+  if (trial) {
+    const { error: llErr } = await admin.from("lesson_leads").insert(who.leads.map((l: Any) => ({ lesson_id: firstLesson.id, lead_id: l.id })));
+    if (llErr) throw llErr;
+    for (const lead of who.leads) await attachLead(lead, firstLesson, teacher.full_name, me);
   }
 
-  return { ok: true, created: lessons!.length, series_id: seriesId, meet: events.some((e) => e.meetUrl), google_connected: google, google_error: googleError };
+  return { ok: true, created: lessons!.length, lesson_id: firstLesson.id, series_id: seriesId, meet: events.some((e) => e.meetUrl), google_connected: google, google_error: googleError };
 }
 
 async function loadLessonFor(me: Profile, id: string) {
@@ -206,12 +226,20 @@ async function seriesScope(lesson: Any, scope: string | undefined) {
 
 async function update(input: Any, me: Profile) {
   const lesson = await loadLessonFor(me, input.lesson_id);
+  if (lesson.status === "cancelled") throw new HttpError(409, "Урок скасовано");
   const targets = await seriesScope(lesson, input.scope);
   const google = await googleConfigured();
   const shiftMs = input.date && input.time
     ? zonedToUtc(input.date, input.time).getTime() - new Date(lesson.starts_at).getTime()
     : 0;
   const duration = input.duration_min ? Math.min(Math.max(Number(input.duration_min), 15), 240) : null;
+  let teacherId: string | null = null;
+  if (input.teacher_id && input.teacher_id !== lesson.teacher_id) {
+    if (!isStaff(me)) throw new HttpError(403, "Змінити викладача може лише менеджер");
+    const { data: t } = await admin.from("profiles").select("id, role, is_active").eq("id", input.teacher_id).maybeSingle();
+    if (!t || !t.is_active || !["teacher", "manager", "admin"].includes(t.role)) throw new HttpError(422, "Викладача не знайдено");
+    teacherId = t.id;
+  }
 
   for (const l of targets) {
     const start = new Date(new Date(l.starts_at).getTime() + shiftMs);
@@ -219,10 +247,10 @@ async function update(input: Any, me: Profile) {
     const patch: Record<string, unknown> = { starts_at: start.toISOString(), ends_at: end.toISOString() };
     if (input.title !== undefined) patch.title = input.title || null;
     if (input.topic !== undefined && l.id === lesson.id) patch.topic = input.topic || null;
-    if (input.teacher_id && isStaff(me)) patch.teacher_id = input.teacher_id;
+    if (teacherId) patch.teacher_id = teacherId;
     const { error } = await admin.from("lessons").update(patch).eq("id", l.id);
     if (error) throw error;
-    if (google && l.google_event_id) {
+    if (google && l.google_event_id && (shiftMs || duration || input.title !== undefined)) {
       await patchMeetEvent(l.google_event_id, { start, end, summary: (patch.title as string) ?? undefined, sendUpdates: !!input.send_invites })
         .catch((e) => console.error("meet patch failed", e));
     }
@@ -237,6 +265,16 @@ async function cancel(input: Any, me: Profile) {
   for (const l of targets) {
     await admin.from("lessons").update({ status: "cancelled" }).eq("id", l.id);
     if (google && l.google_event_id) await deleteMeetEvent(l.google_event_id, !!input.send_invites).catch(() => {});
+  }
+  // leads of a cancelled trial go back to "contacted" so the manager reschedules them
+  if (lesson.kind === "trial") {
+    const { data: ll } = await admin.from("lesson_leads").select("lead:leads(id, status, trial_lesson_id)").eq("lesson_id", lesson.id);
+    for (const { lead } of (ll ?? []) as Any[]) {
+      if (lead?.status === "trial_scheduled" && lead.trial_lesson_id === lesson.id) {
+        await admin.from("leads").update({ status: "contacted" }).eq("id", lead.id);
+        await admin.from("lead_events").insert({ lead_id: lead.id, kind: "status", from_status: "trial_scheduled", to_status: "contacted", actor_id: me.id, body: "Пробний урок скасовано" });
+      }
+    }
   }
   return { ok: true, cancelled: targets.length };
 }
@@ -267,6 +305,44 @@ async function ensureMeet(input: Any, me: Profile) {
   return { ok: true, meet_url: ev.meetUrl };
 }
 
+async function addLead(input: Any, me: Profile) {
+  if (!isStaff(me)) throw new HttpError(403, "Пробні уроки призначає менеджер");
+  const lesson = await loadLessonFor(me, input.lesson_id);
+  if (lesson.kind !== "trial") throw new HttpError(422, "Це не пробний урок");
+  if (lesson.status !== "scheduled" || new Date(lesson.ends_at) < new Date()) throw new HttpError(409, "Урок уже відбувся або скасований");
+  const { data: lead } = await admin.from("leads").select("*").eq("id", input.lead_id).maybeSingle();
+  if (!lead) throw new HttpError(404, "Заявку не знайдено");
+  const { error } = await admin.from("lesson_leads").insert({ lesson_id: lesson.id, lead_id: lead.id });
+  if (error) {
+    if (error.code === "23505") throw new HttpError(409, "Ця заявка вже в цьому уроці");
+    if (/максимум/.test(error.message)) throw new HttpError(422, `У пробній міні-групі максимум ${MAX_TRIAL_LEADS} учасники`);
+    throw error;
+  }
+  const { data: teacher } = await admin.from("profiles").select("full_name").eq("id", lesson.teacher_id).maybeSingle();
+  await attachLead(lead, lesson, teacher?.full_name ?? "", me);
+  if (lead.email && lesson.google_event_id && (await googleConfigured())) {
+    await addEventAttendees(lesson.google_event_id, [lead.email], !!input.send_invites).catch((e) => console.error("attendee add failed", e));
+  }
+  return { ok: true };
+}
+
+async function removeLead(input: Any, me: Profile) {
+  if (!isStaff(me)) throw new HttpError(403, "Недостатньо прав");
+  const lesson = await loadLessonFor(me, input.lesson_id);
+  const { data: lead } = await admin.from("leads").select("id, status, trial_lesson_id").eq("id", input.lead_id).maybeSingle();
+  if (!lead) throw new HttpError(404, "Заявку не знайдено");
+  await admin.from("lesson_leads").delete().eq("lesson_id", lesson.id).eq("lead_id", lead.id);
+  const patch: Record<string, unknown> = {};
+  if (lead.trial_lesson_id === lesson.id) patch.trial_lesson_id = null;
+  if (lead.status === "trial_scheduled") patch.status = "contacted";
+  if (Object.keys(patch).length) await admin.from("leads").update(patch).eq("id", lead.id);
+  await admin.from("lead_events").insert({
+    lead_id: lead.id, kind: "trial", actor_id: me.id, body: `Знято з пробного уроку ${fmtKyiv(lesson.starts_at)}`,
+    from_status: lead.status, to_status: (patch.status as string) ?? lead.status,
+  });
+  return { ok: true };
+}
+
 Deno.serve(handle(async (req) => {
   if (req.method !== "POST") throw new HttpError(405, "Method not allowed");
   const { profile } = await requireUser(req, ["teacher", "manager", "admin"]);
@@ -282,6 +358,10 @@ Deno.serve(handle(async (req) => {
       return json(await remove(input, profile));
     case "ensure_meet":
       return json(await ensureMeet(input, profile));
+    case "add_lead":
+      return json(await addLead(input, profile));
+    case "remove_lead":
+      return json(await removeLead(input, profile));
     default:
       throw new HttpError(400, "Невідома дія");
   }

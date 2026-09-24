@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { AnimatePresence, motion } from "motion/react";
 import {
   CalendarPlus, Globe, LayoutGrid, List, Mail, MessageCircle, Phone, Plus, Search, Send, UserPlus, Video, X, XCircle, StickyNote,
-  UserRound, Clock, Target, GraduationCap,
+  UserRound, Clock, Target, GraduationCap, Pencil, FlaskConical,
 } from "lucide-react";
 import { PageHeader, EmptyState } from "@/components/app/AppShell";
 import { useMe } from "@/components/app/session";
@@ -265,10 +265,19 @@ function LeadDrawer({ id, onClose }: { id: string | null; onClose: () => void })
     },
   });
   const { data: staff = [] } = usePeople(["manager", "admin"]);
+  const { data: levelTest } = useQuery({
+    queryKey: ["lead-level-test", id],
+    enabled: !!id,
+    queryFn: async () => {
+      const { data } = await supabase.from("level_tests").select("level, mc_score, mc_total, feedback, writing, completed_at").eq("lead_id", id!).not("completed_at", "is", null).order("completed_at", { ascending: false }).limit(1).maybeSingle();
+      return data as { level: string; mc_score: number; mc_total: number; feedback: string; writing: string | null; completed_at: string } | null;
+    },
+  });
   const [note, setNote] = useState("");
   const [scheduling, setScheduling] = useState(false);
   const [converting, setConverting] = useState(false);
   const [losing, setLosing] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ["lead", id] });
@@ -351,13 +360,22 @@ function LeadDrawer({ id, onClose }: { id: string | null; onClose: () => void })
                 </div>
 
                 {/* details */}
-                <dl className="grid grid-cols-2 gap-3 rounded-2xl bg-seal-50/70 p-4 text-sm">
+                <dl className="relative grid grid-cols-2 gap-3 rounded-2xl bg-seal-50/70 p-4 text-sm">
+                  <Button size="icon-sm" variant="ghost" className="absolute top-2 right-2" aria-label="Редагувати заявку" onClick={() => setEditing(true)}><Pencil className="size-4" /></Button>
                   <Detail icon={UserRound} label="Вік" value={[lead.age_group && AGE_LABEL[lead.age_group], lead.student_age && `${lead.student_age} р.`].filter(Boolean).join(" · ")} />
-                  <Detail icon={GraduationCap} label="Рівень" value={lead.level} />
+                  <Detail icon={GraduationCap} label="Рівень" value={[lead.level, lead.level_estimate && `тест: ${lead.level_estimate}`].filter(Boolean).join(" · ")} />
                   <Detail icon={Target} label="Мета" value={lead.goal} />
                   <Detail icon={Clock} label="Зручний час" value={lead.preferred_time} />
                   {lead.comment && <div className="col-span-2"><dt className="text-xs text-mute">Коментар</dt><dd className="mt-0.5 whitespace-pre-wrap">{lead.comment}</dd></div>}
                   {lead.lost_reason && <div className="col-span-2"><dt className="text-xs text-mute">Причина відмови</dt><dd className="mt-0.5">{lead.lost_reason}</dd></div>}
+                  {levelTest && (
+                    <div className="col-span-2 rounded-xl bg-white p-3 ring-1 ring-line">
+                      <dt className="flex items-center gap-1.5 text-xs text-mute"><FlaskConical className="size-3.5" /> Тест рівня · {fmtDateTime(levelTest.completed_at)}</dt>
+                      <dd className="mt-1"><b>{levelTest.level}</b> · тест {levelTest.mc_score}/{levelTest.mc_total}</dd>
+                      <dd className="mt-1 text-ink-soft">{levelTest.feedback}</dd>
+                      {levelTest.writing && <details className="mt-1 text-xs text-mute"><summary className="cursor-pointer">Текст учня</summary><p className="mt-1 whitespace-pre-wrap">{levelTest.writing}</p></details>}
+                    </div>
+                  )}
                   {Object.keys(lead.utm ?? {}).length > 0 && (
                     <div className="col-span-2 text-xs text-mute">UTM: {Object.entries(lead.utm).map(([k, v]) => `${k}=${v}`).join(" · ")}</div>
                   )}
@@ -378,7 +396,7 @@ function LeadDrawer({ id, onClose }: { id: string | null; onClose: () => void })
                       {lead.trial?.meet_url && lead.trial.status !== "cancelled" && (
                         <Button asChild size="sm" variant="soft"><a href={lead.trial.meet_url} target="_blank" rel="noreferrer"><Video /> Meet</a></Button>
                       )}
-                      <Button size="sm" onClick={() => setScheduling(true)}><CalendarPlus /> {lead.trial ? "Ще один" : "Призначити"}</Button>
+                      <Button size="sm" onClick={() => setScheduling(true)}><CalendarPlus /> {lead.trial && lead.trial.status !== "cancelled" ? "Інший час" : "Призначити"}</Button>
                     </div>
                   </div>
                 </div>
@@ -417,7 +435,8 @@ function LeadDrawer({ id, onClose }: { id: string | null; onClose: () => void })
       {lead && (
         <>
           <NewLessonDialog open={scheduling} onOpenChange={(v) => { setScheduling(v); if (!v) refresh(); }} lead={lead} />
-          <ConvertDialog lead={lead} open={converting} onOpenChange={setConverting} onDone={refresh} />
+          <ConvertDialog key={lead.id} lead={lead} open={converting} onOpenChange={setConverting} onDone={refresh} />
+          {editing && <EditLeadDialog lead={lead} onClose={() => setEditing(false)} onSaved={refresh} />}
           <LostDialog open={losing} onOpenChange={setLosing} onConfirm={(reason) => update.mutate({ status: "lost", lost_reason: reason || null })} />
         </>
       )}
@@ -456,7 +475,7 @@ function ConvertDialog({ lead, open, onOpenChange, onDone }: { lead: Lead; open:
   const { data: groups = [] } = useGroups();
   const [email, setEmail] = useState(lead.email ?? "");
   const [name, setName] = useState(lead.name);
-  const [level, setLevel] = useState("");
+  const [level, setLevel] = useState(lead.level_estimate ?? "");
   const [groupIds, setGroupIds] = useState<string[]>([]);
   const [creds, setCreds] = useState<{ email: string; password: string; name: string } | null>(null);
 
@@ -477,7 +496,7 @@ function ConvertDialog({ lead, open, onOpenChange, onDone }: { lead: Lead; open:
         <DialogContent title="Зробити учнем" description="Створимо акаунт у кабінеті, заявка отримає статус «Став учнем»">
           <form onSubmit={(e) => { e.preventDefault(); convert.mutate(); }} className="grid gap-5">
             <Field label="Ім'я учня"><Input value={name} onChange={(e) => setName(e.target.value)} required /></Field>
-            <Field label="Email для входу"><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="student@gmail.com" /></Field>
+            <Field label="Email для входу" hint="це логін; на нього прийде відновлення пароля"><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="student@gmail.com" /></Field>
             <Field label="Рівень">
               <Select value={level} onChange={(e) => setLevel(e.target.value)}>
                 <option value="">—</option>
@@ -544,9 +563,13 @@ function NewLeadDialog({ open, onOpenChange, onCreated }: { open: boolean; onOpe
   const [comment, setComment] = useState("");
   const create = useMutation({
     mutationFn: async () => {
+      const cleanPhone = phone.replace(/[^\d+]/g, "");
+      const handle = tg.trim().replace(/^@/, "").replace(/^https?:\/\/t\.me\//, "");
+      if (!cleanPhone && !handle) throw new Error("Вкажіть телефон або Telegram, щоб можна було зв'язатися");
+      if (cleanPhone && (cleanPhone.replace(/\D/g, "").length < 9 || cleanPhone.replace(/\D/g, "").length > 15)) throw new Error("Перевірте номер телефону");
       const { data, error } = await supabase
         .from("leads")
-        .insert({ name, phone: phone || null, telegram_username: tg.replace(/^@/, "") || null, age_group: age, comment: comment || null, source: "manual", manager_id: me.id })
+        .insert({ name: name.trim(), phone: cleanPhone || null, telegram_username: handle || null, age_group: age, comment: comment.trim() || null, source: "manual", manager_id: me.id })
         .select("id")
         .single();
       if (error) throw error;
@@ -577,6 +600,81 @@ function NewLeadDialog({ open, onOpenChange, onCreated }: { open: boolean; onOpe
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Скасувати</Button>
             <Button type="submit" loading={create.isPending}><Plus /> Додати</Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EditLeadDialog({ lead, onClose, onSaved }: { lead: Lead; onClose: () => void; onSaved: () => void }) {
+  const [v, setV] = useState({
+    name: lead.name,
+    phone: lead.phone ?? "",
+    email: lead.email ?? "",
+    telegram_username: lead.telegram_username ?? "",
+    age_group: (lead.age_group ?? "") as AgeGroup | "",
+    student_age: lead.student_age?.toString() ?? "",
+    level: lead.level ?? "",
+    goal: lead.goal ?? "",
+    preferred_time: lead.preferred_time ?? "",
+    comment: lead.comment ?? "",
+  });
+  const set = (k: keyof typeof v) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setV((c) => ({ ...c, [k]: e.target.value }));
+  const save = useMutation({
+    mutationFn: async () => {
+      const age = v.student_age ? Number(v.student_age) : null;
+      if (age != null && (!Number.isFinite(age) || age < 3 || age > 99)) throw new Error("Вік — від 3 до 99");
+      if (v.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.email.trim())) throw new Error("Перевірте email");
+      const { error } = await supabase.from("leads").update({
+        name: v.name.trim(),
+        phone: v.phone.replace(/[^\d+]/g, "") || null,
+        email: v.email.trim() || null,
+        telegram_username: v.telegram_username.trim().replace(/^@/, "") || null,
+        age_group: v.age_group || null,
+        student_age: age,
+        level: v.level.trim() || null,
+        goal: v.goal.trim() || null,
+        preferred_time: v.preferred_time.trim() || null,
+        comment: v.comment.trim() || null,
+      }).eq("id", lead.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Заявку оновлено");
+      onSaved();
+      onClose();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent title={`Редагувати заявку #${lead.no}`} size="lg">
+        <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="grid gap-4">
+          <div className="grid gap-4 sm:grid-cols-[1fr_7rem]">
+            <Field label="Ім'я"><Input value={v.name} onChange={set("name")} required minLength={2} /></Field>
+            <Field label="Вік"><Input type="number" min={3} max={99} value={v.student_age} onChange={set("student_age")} /></Field>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Field label="Телефон"><Input value={v.phone} onChange={set("phone")} placeholder="+380…" /></Field>
+            <Field label="Telegram"><Input value={v.telegram_username} onChange={set("telegram_username")} placeholder="@username" /></Field>
+            <Field label="Email"><Input type="email" value={v.email} onChange={set("email")} /></Field>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Field label="Вікова група">
+              <Select value={v.age_group} onChange={set("age_group")}>
+                <option value="">—</option>
+                {Object.entries(AGE_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+              </Select>
+            </Field>
+            <Field label="Рівень"><Input value={v.level} onChange={set("level")} placeholder="B1" /></Field>
+            <Field label="Зручний час"><Input value={v.preferred_time} onChange={set("preferred_time")} /></Field>
+          </div>
+          <Field label="Мета"><Input value={v.goal} onChange={set("goal")} /></Field>
+          <Field label="Коментар"><Textarea rows={2} value={v.comment} onChange={set("comment")} /></Field>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={onClose}>Скасувати</Button>
+            <Button type="submit" loading={save.isPending}>Зберегти</Button>
           </div>
         </form>
       </DialogContent>

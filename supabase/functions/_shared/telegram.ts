@@ -57,6 +57,7 @@ export interface LeadRow {
   age_group: string | null;
   student_age: number | null;
   level: string | null;
+  level_estimate?: string | null;
   goal: string | null;
   preferred_time: string | null;
   comment: string | null;
@@ -88,6 +89,7 @@ export async function leadCard(lead: LeadRow): Promise<string> {
   if (lead.telegram_username) lines.push(`💬 @${esc(lead.telegram_username.replace(/^@/, ""))}`);
   if (lead.email) lines.push(`✉️ ${esc(lead.email)}`);
   if (lead.age_group) lines.push(`🎯 ${esc(AGE_GROUP[lead.age_group] ?? lead.age_group)}${lead.level ? ` · рівень ${esc(lead.level)}` : ""}`);
+  if (lead.level_estimate) lines.push(`🧪 Тест рівня: ${esc(lead.level_estimate)}`);
   if (lead.goal) lines.push(`🏁 Мета: ${esc(lead.goal)}`);
   if (lead.preferred_time) lines.push(`🕐 Зручно: ${esc(lead.preferred_time)}`);
   if (lead.comment) lines.push(`💭 ${esc(lead.comment)}`);

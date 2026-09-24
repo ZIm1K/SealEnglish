@@ -6,8 +6,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
 import {
-  Bell, BookOpen, CalendarDays, CheckCheck, FolderOpen, Home, Inbox, LogOut, Menu as MenuIcon,
-  Settings, ShieldCheck, Users, UsersRound, X, Plug,
+  Bell, BookOpen, Bot, CalendarDays, CheckCheck, FolderOpen, Home, Inbox, LogOut, Menu as MenuIcon, MessagesSquare,
+  Settings, ShieldCheck, Users, UsersRound, Wallet, X, Plug,
 } from "lucide-react";
 import { Popover } from "radix-ui";
 import { formatDistanceToNow } from "date-fns";
@@ -18,6 +18,7 @@ import { Avatar, Badge, Spinner } from "@/components/ui/misc";
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/components/ui/overlay";
 import { Seal, type SealEmotion } from "@/components/mascot/Seal";
 import { supabase } from "@/lib/supabase";
+import { useAiFeatures } from "@/lib/queries";
 import { ROLE_LABEL, type Notification, type Role } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -26,32 +27,55 @@ interface NavItem {
   label: string;
   icon: typeof Home;
   roles: Role[];
-  badge?: "leads";
+  badge?: "leads" | "flagged";
+  /** shown only when the AI tutor is available to this student */
+  needs?: "tutor";
 }
 
 const NAV: NavItem[] = [
   { href: "/app/", label: "Головна", icon: Home, roles: ["student", "teacher", "manager", "admin"] },
   { href: "/app/schedule/", label: "Розклад", icon: CalendarDays, roles: ["student", "teacher", "manager", "admin"] },
   { href: "/app/homework/", label: "Домашні завдання", icon: BookOpen, roles: ["student", "teacher", "manager", "admin"] },
+  { href: "/app/practice/", label: "Практика з Сілі", icon: MessagesSquare, roles: ["student"], needs: "tutor" },
+  { href: "/app/practice/", label: "Практика учнів", icon: MessagesSquare, roles: ["teacher", "manager", "admin"], badge: "flagged" },
   { href: "/app/materials/", label: "Матеріали", icon: FolderOpen, roles: ["student", "teacher", "manager", "admin"] },
   { href: "/app/leads/", label: "Заявки", icon: Inbox, roles: ["manager", "admin"], badge: "leads" },
   { href: "/app/groups/", label: "Групи", icon: UsersRound, roles: ["teacher", "manager", "admin"] },
   { href: "/app/people/", label: "Учні й команда", icon: Users, roles: ["teacher", "manager", "admin"] },
+  { href: "/app/payouts/", label: "Оплата уроків", icon: Wallet, roles: ["teacher", "manager", "admin"] },
   { href: "/app/settings/", label: "Налаштування", icon: Settings, roles: ["student", "teacher", "manager", "admin"] },
+  { href: "/app/ai/", label: "ШІ-модуль", icon: Bot, roles: ["admin"] },
   { href: "/app/settings/integrations/", label: "Інтеграції", icon: Plug, roles: ["admin"] },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const { session, profile, loading, signOut } = useSession();
+  const { session, profile, loading, signOut, refreshProfile } = useSession();
   const router = useRouter();
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { data: ai } = useAiFeatures();
 
   useEffect(() => {
     if (!loading && !session) router.replace(`/login/`);
   }, [loading, session, router]);
 
-  const items = useMemo(() => NAV.filter((n) => profile && n.roles.includes(profile.role)), [profile]);
+  // Escape closes the mobile menu; the page behind it doesn't scroll while it's open.
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setMobileOpen(false);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [mobileOpen]);
+
+  const items = useMemo(
+    () => NAV.filter((n) => profile && n.roles.includes(profile.role) && (n.needs !== "tutor" || ai?.tutor)),
+    [profile, ai?.tutor],
+  );
 
   const { data: newLeads = 0 } = useQuery({
     queryKey: ["leads-new-count"],
@@ -62,6 +86,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     },
     refetchInterval: 60_000,
   });
+
+  const { data: flaggedCount = 0 } = useQuery({
+    queryKey: ["practice-flagged-count"],
+    enabled: !!profile && profile.role !== "student",
+    queryFn: async () => {
+      const { count } = await supabase.from("practice_sessions").select("id", { count: "exact", head: true }).eq("flagged", true).is("reviewed_at", null);
+      return count ?? 0;
+    },
+    refetchInterval: 120_000,
+  });
+
+  // Signed in, but the profile couldn't be loaded (network error or a missing row) — don't spin forever.
+  if (!loading && session && !profile) {
+    return (
+      <div className="flex min-h-svh flex-col items-center justify-center gap-4 p-6 text-center">
+        <div className="w-32"><Seal crop="head" emotion="surprised" /></div>
+        <h1 className="font-display text-xl font-bold">Не вдалося завантажити профіль</h1>
+        <p className="max-w-sm text-ink-soft">Перевірте з&apos;єднання й спробуйте ще раз. Якщо помилка повторюється — зверніться до менеджера школи.</p>
+        <div className="flex gap-3">
+          <button onClick={() => refreshProfile()} className="cursor-pointer rounded-xl bg-ocean-800 px-4 py-2 font-semibold text-white hover:bg-ocean-700">Спробувати ще раз</button>
+          <button onClick={async () => { await signOut(); router.replace("/login/"); }} className="cursor-pointer font-semibold text-seal-700 hover:underline">Вийти</button>
+        </div>
+      </div>
+    );
+  }
 
   if (loading || !session || !profile) {
     return (
@@ -104,7 +153,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <n.icon className={cn("size-[1.15rem] shrink-0", active ? "text-seal-600" : "text-mute group-hover:text-seal-600")} />
             <span className="truncate">{n.label}</span>
             {n.badge === "leads" && newLeads > 0 && (
-              <span className="ml-auto rounded-full bg-coral-500 px-2 py-0.5 text-[11px] font-bold text-white">{newLeads}</span>
+              <span className="ml-auto rounded-full bg-coral-500 px-2 py-0.5 text-[11px] font-bold text-white" aria-label={`${newLeads} нових`}>{newLeads}</span>
+            )}
+            {n.badge === "flagged" && flaggedCount > 0 && (
+              <span className="ml-auto rounded-full bg-amber-500 px-2 py-0.5 text-[11px] font-bold text-white" aria-label={`${flaggedCount} позначених сесій`}>{flaggedCount}</span>
             )}
           </Link>
         );
@@ -114,6 +166,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-svh bg-canvas lg:grid lg:grid-cols-[17rem_1fr]">
+      <a href="#main" className="sr-only z-50 rounded-xl bg-white px-4 py-2 font-semibold text-ocean-900 shadow-lift focus:not-sr-only focus:fixed focus:top-3 focus:left-3">Перейти до змісту</a>
       {/* sidebar */}
       <aside className="sticky top-0 hidden h-svh flex-col border-r border-line bg-seal-50/60 p-4 lg:flex">
         <div className="px-2 py-2"><Logo href="/" /></div>
@@ -124,7 +177,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* mobile drawer */}
       <AnimatePresence>
         {mobileOpen && (
-          <motion.div className="fixed inset-0 z-50 lg:hidden" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+          <motion.div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Меню кабінету" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <div className="absolute inset-0 bg-ocean-950/40 backdrop-blur-sm" onClick={() => setMobileOpen(false)} />
             <motion.aside
               initial={{ x: "-100%" }}
@@ -176,7 +229,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </MenuContent>
           </Menu>
         </header>
-        <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+        <main id="main" tabIndex={-1} className="flex-1 px-4 py-6 outline-none sm:px-6 lg:px-8 lg:py-8">
           <motion.div key={pathname} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
             {children}
           </motion.div>
@@ -222,6 +275,7 @@ function NotificationsBell({ userId }: { userId: string }) {
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${userId}` }, () => {
         qc.invalidateQueries({ queryKey: ["notifications", userId] });
         qc.invalidateQueries({ queryKey: ["leads-new-count"] });
+        qc.invalidateQueries({ queryKey: ["practice-flagged-count"] });
       })
       .subscribe();
     return () => {

@@ -111,6 +111,19 @@ export async function patchMeetEvent(eventId: string, patch: Partial<MeetEventIn
   }
 }
 
+/** Adds guests to an existing event (group trial: a lead joins later). */
+export async function addEventAttendees(eventId: string, emails: string[], notify = false): Promise<void> {
+  const add = emails.filter((e) => e && e.includes("@"));
+  if (!add.length) return;
+  const res = await gfetch(`${CAL}/${eventId}`, { method: "GET" });
+  if (!res.ok) return;
+  const ev = await res.json();
+  const current: { email: string }[] = ev.attendees ?? [];
+  const merged = [...current, ...add.filter((e) => !current.some((a) => a.email === e)).map((email) => ({ email }))];
+  const params = new URLSearchParams({ sendUpdates: notify ? "all" : "none" });
+  await gfetch(`${CAL}/${eventId}?${params}`, { method: "PATCH", body: JSON.stringify({ attendees: merged }) });
+}
+
 export async function deleteMeetEvent(eventId: string, notify = false): Promise<void> {
   const params = new URLSearchParams({ sendUpdates: notify ? "all" : "none" });
   const res = await gfetch(`${CAL}/${eventId}?${params}`, { method: "DELETE" });

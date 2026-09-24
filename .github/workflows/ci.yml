@@ -1,0 +1,62 @@
+name: CI
+
+# Section 12 of the technical documentation: static checks on every push,
+# Deno checks/tests for Edge Functions and pgTAP RLS tests for every role (NFR-02).
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Lint, typecheck, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
+
+  functions:
+    name: Edge Functions (deno check, lint, test)
+    runs-on: ubuntu-latest
+    env:
+      # functions live outside the Node project; don't let Deno pick up package.json
+      DENO_NO_PACKAGE_JSON: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Type-check
+        working-directory: supabase/functions
+        run: deno check --node-modules-dir=none */index.ts
+      - name: Lint
+        working-directory: supabase/functions
+        run: deno lint
+      - name: Unit tests
+        env:
+          SUPABASE_URL: http://localhost
+          SUPABASE_SERVICE_ROLE_KEY: test
+        run: deno test --node-modules-dir=none --allow-env supabase/functions/_tests/
+
+  database:
+    name: Migrations + RLS tests (pgTAP)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Start local Postgres with all migrations
+        run: supabase db start
+      - name: Run pgTAP tests
+        run: supabase test db
