@@ -5,6 +5,8 @@
  */
 export const SITE = {
   name: "Seal English",
+  /** How people type the brand in search (Ukrainian transliterations, English variants). */
+  altNames: ["Сіл Інгліш", "Сіал Інгліш", "Сил Инглиш", "Seal English School", "SealEnglish"],
   mascot: "Сілі",
   url: process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.sealenglish.school",
   description:

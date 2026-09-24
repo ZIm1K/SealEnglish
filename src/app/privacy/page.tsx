@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { LegalPage } from "@/components/site/LegalPage";
 import { SITE } from "@/content/site";
 
-export const metadata: Metadata = { title: "Політика конфіденційності" };
+export const metadata: Metadata = { title: "Політика конфіденційності", alternates: { canonical: "/privacy/" } };
 
 // TODO(owner): review with a lawyer before launch (retention period of practice texts — open question 14.5).
 export default function PrivacyPage() {

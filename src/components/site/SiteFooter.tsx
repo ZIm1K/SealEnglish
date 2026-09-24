@@ -12,7 +12,7 @@ export function SiteFooter() {
         <div>
           <Logo dark />
           <p className="mt-5 max-w-sm text-sm leading-relaxed">
-            Онлайн-школа англійської для підлітків, дітей і дорослих. Вчимо говорити впевнено — з першого уроку.
+            Seal English (Сіл Інгліш) — онлайн-школа англійської мови для підлітків, дітей і дорослих. Вчимо говорити впевнено — з першого уроку.
           </p>
         </div>
         <div>
@@ -30,6 +30,7 @@ export function SiteFooter() {
             <li><Link href="/#trial" className="transition hover:text-white">Пробний урок</Link></li>
             <li><Link href="/privacy/" className="transition hover:text-white">Політика конфіденційності</Link></li>
             <li><Link href="/offer/" className="transition hover:text-white">Публічна оферта</Link></li>
+            <li><Link href="/en/" hrefLang="en" className="transition hover:text-white">English version</Link></li>
           </ul>
         </div>
         <div>

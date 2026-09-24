@@ -114,7 +114,7 @@ export function Hero() {
             className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-sm text-seal-200 backdrop-blur"
           >
             <Sparkles className="size-4 text-coral-300" />
-            Онлайн-школа англійської для підлітків 12–18
+            Seal English · онлайн-школа англійської мови
           </motion.div>
           <motion.h1
             initial={{ opacity: 0, y: 24 }}

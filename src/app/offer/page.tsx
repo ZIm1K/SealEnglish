@@ -3,7 +3,7 @@ import Link from "next/link";
 import { LegalPage } from "@/components/site/LegalPage";
 import { PLANS, SITE } from "@/content/site";
 
-export const metadata: Metadata = { title: "Публічна оферта" };
+export const metadata: Metadata = { title: "Публічна оферта", alternates: { canonical: "/offer/" } };
 
 // TODO(owner): replace with the final contract text and requisites (acquiring is chosen in a separate document, FR-24).
 export default function OfferPage() {

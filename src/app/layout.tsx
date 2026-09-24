@@ -6,15 +6,20 @@ import { SITE } from "@/content/site";
 export const metadata: Metadata = {
   metadataBase: new URL(SITE.url),
   title: {
-    default: `${SITE.name} — онлайн-школа англійської для підлітків`,
+    default: `${SITE.name} — онлайн-школа англійської мови для підлітків і дітей`,
     template: `%s · ${SITE.name}`,
   },
   description: SITE.description,
   applicationName: SITE.name,
-  keywords: ["англійська для підлітків", "онлайн школа англійської", "англійська онлайн", "уроки англійської", "підготовка до НМТ", "англійська для дітей", "Seal English"],
+  keywords: [
+    "школа англійської", "школа англійської мови", "онлайн школа англійської", "курси англійської онлайн",
+    "англійська для підлітків", "англійська для дітей", "уроки англійської", "підготовка до НМТ з англійської",
+    "Seal English", "Сіл Інгліш", "Сіал Інгліш", "online English school", "English lessons for teens",
+  ],
   openGraph: {
     type: "website",
     locale: "uk_UA",
+    alternateLocale: ["en_US"],
     siteName: SITE.name,
     title: `${SITE.name} — англійська, яку хочеться вчити`,
     description: SITE.description,
@@ -22,7 +27,12 @@ export const metadata: Metadata = {
   },
   twitter: { card: "summary_large_image" },
   icons: {
-    icon: [{ url: "/favicon.svg", type: "image/svg+xml" }, { url: "/favicon-32.png", sizes: "32x32", type: "image/png" }],
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/favicon.svg", type: "image/svg+xml" },
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/favicon-32.png", sizes: "32x32", type: "image/png" },
+    ],
     apple: "/apple-touch-icon.png",
   },
   manifest: "/manifest.webmanifest",
