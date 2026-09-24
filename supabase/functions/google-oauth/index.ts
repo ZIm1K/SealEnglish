@@ -3,7 +3,7 @@
 //   GET  ?code=…&state=…       Google callback → stores refresh token in Vault → redirects back to the site
 //   POST {action:"disconnect"} (admin JWT)
 import {
-  admin, functionsUrl, getSecret, handle, HttpError, json, randomToken, readJson, requireUser, setSecret, setSetting,
+  admin, functionsUrl, getSecret, handle, HttpError, json, logError, randomToken, readJson, requireUser, setSecret, setSetting,
   siteUrl,
 } from "../_shared/core.ts";
 
@@ -42,7 +42,7 @@ async function callback(url: URL): Promise<Response> {
   });
   const tokens = await res.json();
   if (!res.ok) {
-    console.error("google token exchange failed", tokens);
+    await logError("google-oauth", tokens.error_description ?? tokens.error ?? `HTTP ${res.status}`);
     return back("error", [tokens.error, tokens.error_description].filter(Boolean).join(": ") || `HTTP ${res.status}`);
   }
   if (!tokens.refresh_token) return back("no_refresh");

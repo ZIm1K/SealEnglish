@@ -1,7 +1,7 @@
 // Lessons: create (single / weekly series) with Google Meet, reschedule, cancel, delete;
 // trial lessons in a mini-group of up to 4 leads (FR-26): add / remove a lead, each lead keeps its own status.
 import {
-  admin, fmtKyiv, handle, HttpError, isStaff, json, readJson, requireUser, zonedToUtc, type Profile,
+  admin, fmtKyiv, handle, HttpError, isStaff, json, logError, readJson, requireUser, zonedToUtc, type Profile,
 } from "../_shared/core.ts";
 import { addEventAttendees, createMeetEvent, deleteMeetEvent, googleConfigured, patchMeetEvent } from "../_shared/google.ts";
 import { esc, isPublicHttps, sendMessage } from "../_shared/telegram.ts";
@@ -154,15 +154,15 @@ async function create(input: CreateInput, me: Profile) {
         const rest = await mapLimit(occurrences.slice(1), 4, (o) =>
           createMeetEvent({ summary: title, description, start: o.start, end: o.end, attendees, sendUpdates: false, conferenceData: first.conferenceData ?? undefined })
             .then((e) => ({ id: e.id, meetUrl: e.meetUrl ?? first.meetUrl }))
-            .catch((e) => {
-              console.error(e);
+            .catch(async (e) => {
+              await logError("schedule:meet", e, { occurrence: o.start });
               return { id: null, meetUrl: first.meetUrl };
             }));
         events = [events[0], ...rest];
       }
     } catch (e) {
       googleError = e instanceof Error ? e.message : String(e);
-      console.error("meet create failed", e);
+      await logError("schedule:meet", e, { stage: "create" });
     }
   }
 
@@ -252,7 +252,7 @@ async function update(input: Any, me: Profile) {
     if (error) throw error;
     if (google && l.google_event_id && (shiftMs || duration || input.title !== undefined)) {
       await patchMeetEvent(l.google_event_id, { start, end, summary: (patch.title as string) ?? undefined, sendUpdates: !!input.send_invites })
-        .catch((e) => console.error("meet patch failed", e));
+        .catch((e) => logError("schedule:meet", e, { stage: "patch", lesson_id: l.id }));
     }
   }
   return { ok: true, updated: targets.length };
@@ -321,7 +321,7 @@ async function addLead(input: Any, me: Profile) {
   const { data: teacher } = await admin.from("profiles").select("full_name").eq("id", lesson.teacher_id).maybeSingle();
   await attachLead(lead, lesson, teacher?.full_name ?? "", me);
   if (lead.email && lesson.google_event_id && (await googleConfigured())) {
-    await addEventAttendees(lesson.google_event_id, [lead.email], !!input.send_invites).catch((e) => console.error("attendee add failed", e));
+    await addEventAttendees(lesson.google_event_id, [lead.email], !!input.send_invites).catch((e) => logError("schedule:meet", e, { stage: "attendee", lesson_id: lesson.id }));
   }
   return { ok: true };
 }

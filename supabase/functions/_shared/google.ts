@@ -1,4 +1,4 @@
-import { getSecret, TZ } from "./core.ts";
+import { getSecret, logError, TZ } from "./core.ts";
 
 const CAL = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
 
@@ -28,7 +28,7 @@ export async function googleAccessToken(): Promise<string | null> {
   });
   const data = await res.json();
   if (!res.ok || !data.access_token) {
-    console.error("google token refresh failed", data);
+    await logError("google:token", data.error_description ?? data.error ?? `HTTP ${res.status}`);
     return null;
   }
   cachedToken = { token: data.access_token, exp: Date.now() + (data.expires_in ?? 3600) * 1000 };

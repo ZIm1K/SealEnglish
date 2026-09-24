@@ -2,7 +2,7 @@
 // that the `lead` function returns after the trial request.
 //   POST {action:"questions", token} → { name, questions (no answers), writing_task, done? }
 //   POST {action:"submit", token, answers:{[id]: index}, writing} → { level, mc_score, mc_total, feedback }
-import { admin, clientIp, handle, HttpError, json, readJson } from "../_shared/core.ts";
+import { admin, clientIp, handle, HttpError, json, logError, readJson } from "../_shared/core.ts";
 import { aiClient, aiSettings, assertGlobalBudget, structuredCall, z } from "../_shared/ai.ts";
 import { LEVEL_TEST_SYSTEM } from "../_shared/prompts.ts";
 import { combineLevels, LEVELS, mcLevel, QUESTIONS, WRITING_TASK, type Level } from "../_shared/level-test.ts";
@@ -76,7 +76,7 @@ Deno.serve(handle(async (req) => {
       writingLevel = data.level;
       feedback = data.feedback;
     } catch (e) {
-      console.error("level test writing assessment failed", e);
+      await logError("ai-level-test", e, { lead_id: lead.id });
     }
   }
   const level = combineLevels(mc, writingLevel);

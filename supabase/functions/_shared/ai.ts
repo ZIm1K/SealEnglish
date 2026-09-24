@@ -2,7 +2,7 @@
 // limits and moderation. Replacing the provider touches only this file.
 import Anthropic from "npm:@anthropic-ai/sdk@0.128.0";
 import { z } from "npm:zod@4.1.12";
-import { admin, getSecret, getSetting, HttpError, TZ, zonedToUtc } from "./core.ts";
+import { admin, getSecret, getSetting, HttpError, logError, TZ, zonedToUtc } from "./core.ts";
 
 export { Anthropic, z };
 
@@ -103,7 +103,7 @@ export async function logUsage(
     cost_usd: Number(cost.toFixed(6)),
     ref_id: row.refId ?? null,
   });
-  if (error) console.error("ai_usage insert failed", error.message);
+  if (error) await logError("ai:usage", error.message);
   return cost;
 }
 

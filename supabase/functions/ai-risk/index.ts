@@ -1,6 +1,6 @@
 // Churn-risk explanation for managers (FR-19, phase 2). Scoring itself is SQL (private.compute_risk_scores);
 // this function only turns the signals into 2–3 sentences. Internal (DB) or staff JWT.
-import { admin, handle, HttpError, isInternal, json, readJson, requireUser } from "../_shared/core.ts";
+import { admin, handle, HttpError, isInternal, json, logError, readJson, requireUser } from "../_shared/core.ts";
 import { aiClient, aiSettings, assertGlobalBudget, logUsage, textOf } from "../_shared/ai.ts";
 import { RISK_SYSTEM } from "../_shared/prompts.ts";
 
@@ -44,6 +44,7 @@ Deno.serve(handle(async (req) => {
     try {
       return json(await explain(student_id, computed_on));
     } catch (e) {
+      await logError("ai-risk", e, { student_id });
       return json({ ok: false, error: e instanceof Error ? e.message : String(e) });
     }
   }

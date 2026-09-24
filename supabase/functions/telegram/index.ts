@@ -277,7 +277,7 @@ async function finishTrial(chatId: number, from: Any, s: Session) {
     .single();
   await clearSession(chatId);
   if (error) {
-    console.error(error);
+    await logError("telegram:lead", error.message);
     await sendMessage(chatId, "😔 Не вдалося зберегти заявку. Спробуйте ще раз трохи пізніше.", { reply_markup: menuFor(null) });
     return;
   }
@@ -569,7 +569,7 @@ Deno.serve(handle(async (req) => {
     if (update.message) await onMessage(update.message);
     else if (update.callback_query) await onCallback(update.callback_query);
   } catch (e) {
-    console.error("bot error", e);
+    await logError("telegram", e, { update_id: update.update_id });
   }
   return json({ ok: true });
 }));
