@@ -28,6 +28,7 @@ export const NAV = [
   { href: "/#platform", label: "Платформа" },
   { href: "/#pricing", label: "Ціни" },
   { href: "/#faq", label: "Питання" },
+  { href: "/test/", label: "Тест рівня" },
 ];
 
 export type Program = {
