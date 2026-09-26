@@ -137,7 +137,8 @@ Deno.serve(handle(async (req) => {
     const partial = roster.filter((s) => norm(s.full_name).split(/\s+/).includes(n.split(/\s+/)[0]));
     return partial.length === 1 ? partial[0].id : null;
   };
-  const mistakes = data.mistakes.map(({ student, ...m }) => ({ ...m, student_id: byName(student), student_name: student }));
+  const same = (a: string, b: string) => a.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "") === b.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+  const mistakes = data.mistakes.filter((m) => !same(m.example, m.correction)).map(({ student, ...m }) => ({ ...m, student_id: byName(student), student_name: student }));
 
   const row = {
     lesson_id: lesson.id,
