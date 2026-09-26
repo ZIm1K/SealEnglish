@@ -104,11 +104,13 @@ export async function streamFunction(
       buffer = buffer.slice(idx + 2);
       for (const line of chunk.split("\n")) {
         if (!line.startsWith("data:")) continue;
+        let event: Record<string, unknown>;
         try {
-          onEvent(JSON.parse(line.slice(5).trim()));
+          event = JSON.parse(line.slice(5).trim());
         } catch {
-          // ignore malformed lines
+          continue; // ignore malformed lines
         }
+        onEvent(event); // errors thrown by the handler (e.g. a server "error" event) must reach the caller
       }
     }
   }

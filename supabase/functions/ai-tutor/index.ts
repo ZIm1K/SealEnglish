@@ -123,6 +123,7 @@ async function start(me: Profile, input: Any) {
     throw new HttpError(429, "На сьогодні ліміт практики вичерпано. Повертайся завтра! 🦭");
   }
   const { ctx, lessonId, topic } = await buildContext(me as Any, mode, input.lesson_id);
+  if (mode === "mistakes" && !ctx.mistakes.length) throw new HttpError(422, "Поки немає помилок для відпрацювання — обери інший режим 🙂");
   const greeting = tutorGreeting(ctx);
   const { data: session, error } = await admin
     .from("practice_sessions")
@@ -169,39 +170,37 @@ function sse(body: (send: (event: Record<string, unknown>) => void) => Promise<v
 }
 
 async function message(me: Profile, input: Any): Promise<Response> {
-  const settings = await aiSettings();
-  const client = await aiClient(settings, "tutor_enabled");
-  await assertTutorAllowed(settings, me);
   const raw = String(input.text ?? "").trim();
   if (!raw) throw new HttpError(422, "Напиши повідомлення");
   if (raw.length > MAX_INPUT) throw new HttpError(422, `Повідомлення задовге (до ${MAX_INPUT} символів)`);
 
-  const { data: session } = await admin.from("practice_sessions").select("*").eq("id", input.session_id).maybeSingle();
+  // Latency: every check is independent, so they run in parallel instead of ~8 sequential round trips.
+  const settings = await aiSettings();
+  const [client, , { data: session }, quota, , { data: history }] = await Promise.all([
+    aiClient(settings, "tutor_enabled"),
+    assertTutorAllowed(settings, me),
+    admin.from("practice_sessions").select("*").eq("id", input.session_id).maybeSingle(),
+    tutorQuota(settings, me.id),
+    assertGlobalBudget(settings),
+    admin.from("practice_turns").select("role, content").eq("session_id", input.session_id).order("id", { ascending: false }).limit(HISTORY_TURNS),
+  ]);
   if (!session || session.student_id !== me.id) throw new HttpError(404, "Сесію не знайдено");
   if (session.ended_at) throw new HttpError(409, "Сесію завершено. Почни нову 🙂");
-
-  const quota = await tutorQuota(settings, me.id);
   if (quota.messagesLeft <= 0 || quota.usdLeft <= 0) {
     throw new HttpError(429, "На сьогодні ліміт практики вичерпано. Повертайся завтра! 🦭");
   }
-  await assertGlobalBudget(settings);
 
   const mod = moderate(raw);
-  const { data: history } = await admin
-    .from("practice_turns")
-    .select("role, content")
-    .eq("session_id", session.id)
-    .order("id", { ascending: false })
-    .limit(HISTORY_TURNS);
-  await admin.from("practice_turns").insert({ session_id: session.id, role: "user", content: mod.masked, flagged: mod.flags.length > 0 });
+  // Saved while the model is already generating; awaited before the reply is stored so turn order stays intact.
+  // Supabase builders are lazy, so .then() starts the insert right away.
+  const userTurn = admin.from("practice_turns").insert({ session_id: session.id, role: "user", content: mod.masked, flagged: mod.flags.length > 0 }).then((r) => r);
 
   return sse(async (send) => {
     const touch = (extra: Record<string, unknown> = {}) =>
       admin.from("practice_sessions").update({ turns: (session.turns ?? 0) + 1, last_activity_at: new Date().toISOString(), ...extra }).eq("id", session.id);
 
-    if (mod.flags.length) await flagSession(session, me, mod.flags);
-
     if (mod.crisis) {
+      await Promise.all([userTurn, flagSession(session, me, mod.flags)]);
       await admin.from("practice_turns").insert({ session_id: session.id, role: "assistant", content: CRISIS_REPLY, flagged: true });
       await touch();
       send({ type: "delta", text: CRISIS_REPLY });
@@ -215,10 +214,12 @@ async function message(me: Profile, input: Any): Promise<Response> {
     for (const t of turns) messages.push({ role: t.role as "user" | "assistant", content: t.content });
     messages.push({ role: "user", content: mod.masked });
 
+    // Chat replies are short, so the fast model gives the snappiest first token; Haiku takes no effort setting.
+    const model = settings.model_fast;
     const stream = client.messages.stream({
-      model: settings.model_main,
+      model,
       max_tokens: 700,
-      output_config: { effort: "low" },
+      ...(model.includes("haiku") ? {} : { output_config: { effort: "low" as const } }),
       cache_control: { type: "ephemeral" },
       system: [
         { type: "text", text: TUTOR_SYSTEM },
@@ -257,7 +258,6 @@ async function message(me: Profile, input: Any): Promise<Response> {
     flush();
 
     const final = await stream.finalMessage();
-    await logUsage(settings, { userId: me.id, feature: "tutor", model: settings.model_main, usage: final.usage, refId: session.id });
 
     let reply = safety ? full.trimStart().slice(TUTOR_SAFETY_MARKER.length).trimStart() : full;
     if (final.stop_reason === "refusal" && !reply.trim()) {
@@ -265,13 +265,18 @@ async function message(me: Profile, input: Any): Promise<Response> {
       send({ type: "delta", text: reply });
     }
     const outFlags = moderate(reply).flags.filter((f) => f !== "contact");
-    const flags: ModerationFlag[] = [...outFlags];
-    if (safety && !mod.flags.length) flags.push("model");
-    if (flags.length) await flagSession({ ...session, flagged: session.flagged || mod.flags.length > 0 }, me, flags);
-
-    await admin.from("practice_turns").insert({ session_id: session.id, role: "assistant", content: reply || "…", flagged: safety || outFlags.length > 0 });
-    await touch();
+    // The student is done waiting here; bookkeeping below happens before the stream closes but after "done".
     send({ type: "done", flagged: safety || mod.flags.length > 0 || outFlags.length > 0, messages_left: quota.messagesLeft - 1 });
+
+    const flags: ModerationFlag[] = [...mod.flags, ...outFlags];
+    if (safety && !mod.flags.length) flags.push("model");
+    await userTurn;
+    await Promise.all([
+      logUsage(settings, { userId: me.id, feature: "tutor", model, usage: final.usage, refId: session.id }),
+      flags.length ? flagSession(session, me, flags) : null,
+      admin.from("practice_turns").insert({ session_id: session.id, role: "assistant", content: reply || "…", flagged: safety || outFlags.length > 0 }),
+      touch(),
+    ]);
   });
 }
 

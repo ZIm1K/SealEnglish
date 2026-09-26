@@ -7,7 +7,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import { uk } from "date-fns/locale";
 import { toast } from "sonner";
-import { AlertTriangle, BookOpenCheck, CheckCircle2, Flag, GraduationCap, MessageCircleHeart, Send, ShieldCheck, Square, Target } from "lucide-react";
+import { AlertTriangle, BookOpenCheck, CheckCircle2, ChevronLeft, Flag, GraduationCap, ListChecks, MessageCircleHeart, Send, ShieldCheck, Target } from "lucide-react";
 import { PageHeader, EmptyState } from "@/components/app/AppShell";
 import { useMe, isStaffRole } from "@/components/app/session";
 import { MistakesProfile } from "@/components/app/mistakes";
@@ -32,6 +32,15 @@ const MODES: { value: Mode; title: string; text: string; icon: typeof Target }[]
   { value: "exam", title: "НМТ", text: "Завдання у форматі тесту", icon: GraduationCap },
 ];
 
+/** Suggested prompts: one tap sends them, so a student who doesn't know what to write still gets going. */
+const SUGGESTIONS: Record<Mode, string[]> = {
+  lesson: ["Ask me a question about my last lesson", "Give me a quick quiz on the new words", "Поясни ще раз граматику з уроку", "Let's make sentences with the new words"],
+  mistakes: ["Give me an exercise on my typical mistake", "Check this sentence for me", "Поясни, чому це помилка", "One more, please!"],
+  free: ["Let's talk about games", "Ask me about my weekend", "Recommend me a film in English", "Як сказати це англійською?"],
+  exam: ["Give me an НМТ reading task", "Test me on tenses", "Поясни правильну відповідь", "Next question, please"],
+};
+const GENERIC_SUGGESTIONS = ["Ask me a question", "Give me a short quiz", "Як сказати це англійською?", "Explain it in Ukrainian, please"];
+
 function PracticeInner() {
   const me = useMe();
   return me.role === "student" ? <StudentPractice /> : <TeacherPractice />;
@@ -50,6 +59,14 @@ function StudentPractice() {
   const lessonParam = params.get("lesson");
   const { data: ai, isLoading: aiLoading } = useAiFeatures();
   const [local, setLocal] = useState<{ id: string; turns: ChatTurn[] } | null>(null);
+  const [mode, setMode] = useState<Mode | null>(null);
+  const { data: openMistakes = 0 } = useQuery({
+    queryKey: ["mistakes-open-count", me.id],
+    queryFn: async () => {
+      const { count } = await supabase.from("student_mistakes").select("id", { count: "exact", head: true }).eq("student_id", me.id).is("resolved_at", null);
+      return count ?? 0;
+    },
+  });
   const [dismissed, setDismissed] = useState(false);
   const [streaming, setStreaming] = useState<string | null>(null);
   const [text, setText] = useState("");
@@ -95,7 +112,8 @@ function StudentPractice() {
 
   const start = useMutation({
     mutationFn: (mode: Mode) => callFunction<{ session_id: string; greeting: string; messages_left: number }>("ai-tutor", { action: "start", mode, lesson_id: mode === "lesson" ? lessonParam ?? undefined : undefined }),
-    onSuccess: (r) => {
+    onSuccess: (r, m) => {
+      setMode(m);
       setLocal({ id: r.session_id, turns: [{ role: "assistant", content: r.greeting }] });
       setLeft(r.messages_left);
       setSummary(undefined);
@@ -110,36 +128,78 @@ function StudentPractice() {
       setSummary(r.summary);
       qc.invalidateQueries({ queryKey: ["practice-history", me.id] });
       qc.invalidateQueries({ queryKey: ["mistakes", me.id] });
+      qc.invalidateQueries({ queryKey: ["mistakes-open-count", me.id] });
       qc.invalidateQueries({ queryKey: ["practice-open", me.id] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const send = async () => {
-    const msg = text.trim();
+  /** Back to the mode picker at any moment: the session is closed (and summarised) in the background. */
+  const leave = () => {
+    abort.current?.abort();
+    const id = sessionId;
+    const talked = turns.some((t) => t.role === "user");
+    setLocal(null);
+    setDismissed(true);
+    setSummary(undefined);
+    setMode(null);
+    setText("");
+    if (id && summary === undefined) {
+      callFunction("ai-tutor", { action: "end", session_id: id })
+        .then(() => {
+          qc.invalidateQueries({ queryKey: ["practice-history", me.id] });
+          qc.invalidateQueries({ queryKey: ["mistakes", me.id] });
+          qc.invalidateQueries({ queryKey: ["mistakes-open-count", me.id] });
+        })
+        .catch(() => {}); // abandoned sessions are also closed by the nightly job
+      if (talked) toast.success("Розмову збережено", { description: "Підсумок з'явиться в «Попередніх сесіях»" });
+    }
+  };
+
+  // "Сілі думає довше, ніж зазвичай" — so a slow first token never looks like a crash.
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    if (streaming !== "") return;
+    const t = setTimeout(() => setSlow(true), 8000);
+    return () => {
+      clearTimeout(t);
+      setSlow(false);
+    };
+  }, [streaming]);
+
+  const send = async (preset?: string) => {
+    const msg = (preset ?? text).trim();
     if (!msg || !sessionId || streaming !== null) return;
     setText("");
     setTurns((t) => [...t, { role: "user", content: msg }]);
     setStreaming("");
     abort.current = new AbortController();
     let acc = "";
+    let finished = false;
     try {
       await streamFunction("ai-tutor", { action: "message", session_id: sessionId, text: msg }, (ev) => {
         if (ev.type === "delta") {
           acc += String(ev.text ?? "");
           setStreaming(acc);
         } else if (ev.type === "done") {
+          finished = true;
           setLeft(Number(ev.messages_left ?? 0));
           if (ev.flagged) setFlagged(true);
+          // the reply is complete — show it now, the server is only saving it
+          setTurns((t) => [...t, { role: "assistant", content: acc || "…" }]);
+          setStreaming(null);
         } else if (ev.type === "error") {
           throw new Error(String(ev.message));
         }
       }, abort.current.signal);
-      setTurns((t) => [...t, { role: "assistant", content: acc || "…" }]);
+      if (!finished) {
+        if (!acc) throw new Error("Сілі не відповів. Спробуй надіслати ще раз.");
+        setTurns((t) => [...t, { role: "assistant", content: acc }]);
+      }
     } catch (e) {
-      if ((e as Error).name !== "AbortError") {
+      if ((e as Error).name !== "AbortError" && !finished) {
         toast.error(e instanceof Error ? e.message : "Не вдалося надіслати");
-        if (!acc) setText(msg);
+        if (!acc && !preset) setText(msg);
         setTurns((t) => (acc ? [...t, { role: "assistant", content: acc }] : t.slice(0, -1)));
       }
     } finally {
@@ -154,6 +214,7 @@ function StudentPractice() {
   }
 
   const chatting = sessionId && summary === undefined;
+  const typing = streaming !== null;
 
   return (
     <div>
@@ -163,7 +224,7 @@ function StudentPractice() {
         actions={left != null && <Badge tone={left > 5 ? "seal" : "coral"}>Сьогодні ще {left} повідомлень</Badge>}
       />
       <div className="grid gap-6 xl:grid-cols-[1.5fr_1fr]">
-        <Card className="flex min-h-[32rem] flex-col overflow-hidden">
+        <Card className={cn("flex flex-col overflow-hidden", sessionId ? "h-[calc(100svh-9rem)] max-h-[44rem] min-h-[26rem]" : "min-h-[32rem]")}>
           {!sessionId ? (
             <div className="grid gap-5 p-5 sm:p-6">
               <div className="flex items-center gap-4">
@@ -174,29 +235,52 @@ function StudentPractice() {
                 </div>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
-                {MODES.map((m) => (
-                  <button
-                    key={m.value}
-                    type="button"
-                    disabled={start.isPending || left === 0}
-                    onClick={() => start.mutate(m.value)}
-                    className="flex cursor-pointer items-start gap-3 rounded-2xl border border-line bg-white p-4 text-left transition hover:border-seal-300 hover:shadow-soft disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-seal-100 text-seal-700"><m.icon className="size-5" /></span>
-                    <span>
-                      <span className="block font-semibold">{m.title}</span>
-                      <span className="block text-sm text-mute">{m.text}</span>
-                    </span>
-                  </button>
-                ))}
+                {MODES.map((m) => {
+                  const noMistakes = m.value === "mistakes" && openMistakes === 0;
+                  return (
+                    <button
+                      key={m.value}
+                      type="button"
+                      disabled={start.isPending || left === 0 || noMistakes}
+                      onClick={() => start.mutate(m.value)}
+                      className="flex cursor-pointer items-start gap-3 rounded-2xl border border-line bg-white p-4 text-left transition hover:border-seal-300 hover:shadow-soft disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-line disabled:hover:shadow-none"
+                    >
+                      <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-seal-100 text-seal-700"><m.icon className="size-5" /></span>
+                      <span>
+                        <span className="block font-semibold">{m.title}</span>
+                        <span className="block text-sm text-mute">{noMistakes ? "Поки немає помилок для відпрацювання 🎉" : m.text}</span>
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
               <PrivacyNote />
             </div>
           ) : (
             <>
-              <div className="flex-1 space-y-3 overflow-y-auto p-4 sm:p-5" aria-live="polite" aria-label="Розмова з Сілі">
-                {turns.map((t, i) => <Bubble key={i} role={t.role} text={t.content} />)}
-                {streaming !== null && <Bubble role="assistant" text={streaming || "…"} typing />}
+              <div className="flex items-center gap-2.5 border-b border-line bg-gradient-to-r from-seal-50 to-white py-2.5 pr-3 pl-1.5">
+                <button type="button" onClick={leave} className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-xl text-ink-soft transition hover:bg-white hover:text-ink" aria-label="До вибору практики" title="До вибору практики">
+                  <ChevronLeft className="size-5" />
+                </button>
+                <div className="relative w-10 shrink-0">
+                  <Seal crop="head" emotion={typing ? "neutral" : "happy"} idle={false} />
+                  <span className={cn("absolute right-0 bottom-0.5 size-2.5 rounded-full ring-2 ring-white", chatting ? "bg-emerald-500" : "bg-mute")} />
+                </div>
+                <div className="min-w-0 flex-1 leading-tight">
+                  <div className="font-display font-semibold text-ocean-900">Сілі</div>
+                  <div className="truncate text-xs text-mute" aria-live="polite">
+                    {typing ? <span className="text-seal-700">{streaming ? "пише…" : slow ? "думає довше, ніж зазвичай…" : "друкує…"}</span> : chatting ? "онлайн · ШІ-тренер" : "розмову завершено"}
+                  </div>
+                </div>
+                {chatting && turns.some((t) => t.role === "user") && (
+                  <Button type="button" variant="ghost" size="sm" onClick={() => end.mutate()} loading={end.isPending} disabled={typing} className="text-ink-soft" title="Завершити розмову й побачити підсумок">
+                    <ListChecks className="size-4" /> Підсумок
+                  </Button>
+                )}
+              </div>
+              <div className="flex-1 space-y-2.5 overflow-y-auto bg-canvas/40 px-3 py-4 sm:px-5" aria-label="Розмова з Сілі">
+                {turns.map((t, i) => <Bubble key={i} role={t.role} text={t.content} tail={turns[i + 1]?.role !== t.role && !(t.role === "assistant" && typing && i === turns.length - 1)} />)}
+                {typing && (streaming ? <Bubble role="assistant" text={streaming} tail cursor /> : <TypingBubble />)}
                 {summary !== undefined && <SummaryCard summary={summary} />}
                 <div ref={bottom} />
               </div>
@@ -211,32 +295,57 @@ function StudentPractice() {
                     e.preventDefault();
                     send();
                   }}
-                  className="flex items-end gap-2 border-t border-line p-3"
+                  className="border-t border-line bg-white p-2.5 sm:p-3"
                 >
-                  <Textarea
-                    aria-label="Твоє повідомлення"
-                    rows={1}
-                    value={text}
-                    maxLength={1500}
-                    onChange={(e) => setText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                        e.preventDefault();
-                        send();
-                      }
-                    }}
-                    placeholder={left === 0 ? "Ліміт на сьогодні вичерпано" : "Write in English… (Enter — надіслати)"}
-                    disabled={left === 0}
-                    className="max-h-40 min-h-11 flex-1 resize-none"
-                  />
-                  <Button type="submit" size="icon" aria-label="Надіслати" disabled={!text.trim() || streaming !== null || left === 0} loading={streaming !== null}><Send /></Button>
-                  <Button type="button" variant="outline" onClick={() => end.mutate()} loading={end.isPending} disabled={streaming !== null}>
-                    <Square className="size-4" /> Завершити
-                  </Button>
+                  {!typing && !text && left !== 0 && (
+                    <div className="-mx-2.5 mb-2 flex gap-2 overflow-x-auto px-2.5 pb-0.5 [scrollbar-width:none] sm:-mx-3 sm:px-3" aria-label="Підказки">
+                      {(mode ? SUGGESTIONS[mode] : GENERIC_SUGGESTIONS).map((s) => (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => send(s)}
+                          className="shrink-0 cursor-pointer rounded-full border border-seal-200 bg-seal-50/70 px-3 py-1.5 text-[13px] font-medium whitespace-nowrap text-seal-800 transition hover:border-seal-300 hover:bg-seal-100 active:scale-[.97]"
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex items-end gap-1.5 rounded-3xl border border-line bg-canvas/60 py-1.5 pr-1.5 pl-4 transition focus-within:border-seal-300 focus-within:bg-white focus-within:ring-4 focus-within:ring-seal-100">
+                    <textarea
+                      aria-label="Твоє повідомлення"
+                      rows={1}
+                      value={text}
+                      maxLength={1500}
+                      onChange={(e) => {
+                        setText(e.target.value);
+                        e.target.style.height = "auto";
+                        e.target.style.height = `${Math.min(e.target.scrollHeight, 128)}px`;
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                          e.preventDefault();
+                          send();
+                        }
+                      }}
+                      placeholder={left === 0 ? "Ліміт на сьогодні вичерпано" : "Write in English…"}
+                      disabled={left === 0}
+                      className="max-h-32 min-h-9 flex-1 resize-none bg-transparent py-1.5 text-[0.95rem] leading-6 text-ink outline-none placeholder:text-mute disabled:cursor-not-allowed"
+                    />
+                    <button
+                      type="submit"
+                      aria-label="Надіслати"
+                      disabled={!text.trim() || typing || left === 0}
+                      className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-coral-500 text-white shadow-soft transition hover:bg-coral-600 active:scale-95 disabled:cursor-not-allowed disabled:bg-line disabled:text-mute disabled:shadow-none"
+                    >
+                      <Send className="size-4" />
+                    </button>
+                  </div>
+                  <p className="mt-1 hidden px-4 text-[11px] text-mute sm:block">Enter — надіслати · Shift+Enter — новий рядок</p>
                 </form>
               ) : (
                 <div className="flex justify-center border-t border-line p-3">
-                  <Button onClick={() => { setLocal(null); setDismissed(true); setSummary(undefined); }}>Нова розмова</Button>
+                  <Button onClick={leave}>Нова розмова</Button>
                 </div>
               )}
             </>
@@ -263,17 +372,32 @@ function PrivacyNote() {
   );
 }
 
-function Bubble({ role, text, typing }: { role: "user" | "assistant"; text: string; typing?: boolean }) {
+/** `tail` marks the last bubble of a run: it gets the avatar and the pointed corner, like messengers do. */
+function Bubble({ role, text, tail = true, cursor }: { role: "user" | "assistant"; text: string; tail?: boolean; cursor?: boolean }) {
   const mine = role === "user";
   return (
-    <div className={cn("flex items-end gap-2", mine && "flex-row-reverse")}>
-      {!mine && <div className="w-9 shrink-0"><Seal crop="head" emotion="happy" idle={false} /></div>}
+    <div className={cn("flex items-end gap-2 animate-[popIn_.18s_ease-out]", mine ? "justify-end pl-10" : "pr-8")}>
+      {!mine && <div className="w-8 shrink-0">{tail && <Seal crop="head" emotion="happy" idle={false} />}</div>}
       <div className={cn(
-        "max-w-[85%] rounded-2xl px-4 py-2.5 text-[0.95rem] leading-relaxed whitespace-pre-wrap",
-        mine ? "rounded-br-md bg-ocean-800 text-white" : "rounded-bl-md bg-seal-50 text-ink ring-1 ring-seal-100",
-        typing && "animate-pulse",
+        "max-w-full rounded-3xl px-4 py-2.5 text-[0.95rem] leading-relaxed break-words whitespace-pre-wrap",
+        mine ? "bg-ocean-800 text-white" : "bg-white text-ink shadow-soft ring-1 ring-line/70",
+        tail && (mine ? "rounded-br-lg" : "rounded-bl-lg"),
       )}>
         {text}
+        {cursor && <span aria-hidden className="ml-0.5 inline-block h-4 w-0.5 translate-y-0.5 animate-pulse rounded-full bg-seal-500" />}
+      </div>
+    </div>
+  );
+}
+
+function TypingBubble() {
+  return (
+    <div className="flex items-end gap-2 pr-8 animate-[popIn_.18s_ease-out]" role="status" aria-label="Сілі друкує">
+      <div className="w-8 shrink-0"><Seal crop="head" emotion="neutral" idle={false} /></div>
+      <div className="flex items-center gap-1 rounded-3xl rounded-bl-lg bg-white px-4 py-3.5 shadow-soft ring-1 ring-line/70">
+        {[0, 160, 320].map((d) => (
+          <span key={d} className="size-2 animate-bounce rounded-full bg-seal-400" style={{ animationDelay: `${d}ms`, animationDuration: "1s" }} />
+        ))}
       </div>
     </div>
   );
