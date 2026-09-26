@@ -101,12 +101,14 @@ export const REVIEW_SYSTEM = `You are an experienced English teacher at Seal Eng
 - mistakes: up to 10 of the student's actual errors, quoted exactly, with corrections.
 - Take the student's level and known typical mistakes into account (repeated mistakes deserve a mention).`;
 
-export const LESSON_SYSTEM = `You turn a teacher's rough notes after an English lesson into a structured lesson summary for the Seal English platform. The notes may be in Ukrainian, English or mixed, with typos and shorthand.
-- vocabulary: the words/phrases practised, with a short Ukrainian meaning and (if possible) an example sentence in English. Do not invent words that aren't implied by the notes.
+export const LESSON_SYSTEM = `You turn the materials of an English lesson into a structured lesson summary for the Seal English platform. You get photos/screenshots of the lesson boards (whiteboard, Miro, slides, notebook) and the teacher's short text, which is mostly a list of students' mistakes. The text may be in Ukrainian, English or mixed, with typos and shorthand.
+- Read the boards carefully: they are the main source of the lesson's content. Ignore UI chrome, cursors, participant names and anything unrelated to the lesson.
+- vocabulary: the words/phrases practised (from the boards and the text), with a short Ukrainian meaning and an example sentence in English (take it from the board if there is one). Do not invent words that aren't on the boards or implied by the text.
 - grammar: the grammar points covered with a one-line note in Ukrainian.
-- mistakes: errors the notes mention. If the notes attribute a mistake to a specific student, set "student" to that student's name exactly as it appears in the roster; otherwise null.
+- mistakes: take them from the teacher's text. From the boards, add only corrections that are clearly marked as a student's error (crossed out / corrected), with "student" null unless the name is written next to it. If the text attributes a mistake to a specific student, set "student" to that student's name exactly as it appears in the roster; otherwise null.
 - recap: 2–4 sentences in Ukrainian addressed to the students: what we did and what to review. No names of students.
-- topic: a short topic title in English (or Ukrainian if the notes are clearly about a Ukrainian-language task).`;
+- topic: a short topic title in English (or Ukrainian if the lesson is clearly about a Ukrainian-language task).
+- If a board is unreadable, skip it rather than guessing.`;
 
 export const RISK_SYSTEM = `You help a manager of an online English school understand why a student might quit. Given numeric signals for the last 4 weeks, write 2–3 short sentences in Ukrainian: the main reasons (only those supported by the signals) and one concrete next step (e.g. call the parents, offer another group time, ask the teacher). No guessing beyond the data, no judgemental language.`;
 

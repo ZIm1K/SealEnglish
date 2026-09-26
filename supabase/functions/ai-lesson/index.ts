@@ -1,8 +1,9 @@
-// Lesson summary (FR-11): the teacher's rough notes → structured vocabulary / grammar / mistakes draft.
-// The teacher edits the draft in the cabinet and publishes it (RPC publish_lesson_summary).
-//   POST {lesson_id, notes} (teacher / staff JWT) → saved draft
+// Lesson summary (FR-11): photos of the lesson boards + the teacher's text about students' mistakes →
+// structured vocabulary / grammar / mistakes draft. The teacher edits the draft and publishes it (RPC publish_lesson_summary).
+//   POST {lesson_id, notes, images?: [{media_type, data(base64)}]} (teacher / staff JWT) → saved draft
+// Photos are analysed only, never stored.
 import { admin, handle, HttpError, isStaff, json, readJson, requireUser } from "../_shared/core.ts";
-import { aiClient, aiSettings, assertGlobalBudget, MISTAKE_CATEGORIES, structuredCall, z } from "../_shared/ai.ts";
+import { aiClient, aiSettings, assertGlobalBudget, MISTAKE_CATEGORIES, structuredCall, z, type Anthropic } from "../_shared/ai.ts";
 import { LESSON_SYSTEM } from "../_shared/prompts.ts";
 
 const schema = {
@@ -48,6 +49,11 @@ const schema = {
   },
 };
 
+const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
+type ImageType = (typeof IMAGE_TYPES)[number];
+const MAX_IMAGES = 8;
+const MAX_IMAGE_B64 = Math.floor((5 * 1024 * 1024 * 4) / 3); // provider limit: 5 MB per image
+
 const validator = z.object({
   topic: z.string().trim().max(200).catch(""),
   vocabulary: z.array(z.object({ term: z.string().trim().min(1).max(120), meaning: z.string().max(200).catch(""), example: z.string().max(300).catch("") })).max(40).catch([]),
@@ -65,10 +71,16 @@ const validator = z.object({
 Deno.serve(handle(async (req) => {
   if (req.method !== "POST") throw new HttpError(405, "Method not allowed");
   const { profile } = await requireUser(req, ["teacher", "manager", "admin"]);
-  const input = await readJson<{ lesson_id: string; notes: string }>(req);
+  const input = await readJson<{ lesson_id: string; notes: string; images?: { media_type: string; data: string }[] }>(req);
   const notes = String(input.notes ?? "").trim();
-  if (notes.length < 15) throw new HttpError(422, "Напишіть кілька речень нотаток про урок");
-  if (notes.length > 8000) throw new HttpError(422, "Нотатки задовгі (до 8000 символів)");
+  const images = Array.isArray(input.images) ? input.images : [];
+  if (images.length > MAX_IMAGES) throw new HttpError(422, `Не більше ${MAX_IMAGES} фото`);
+  for (const img of images) {
+    if (!IMAGE_TYPES.includes(img?.media_type as ImageType) || typeof img.data !== "string" || !img.data) throw new HttpError(422, "Непідтримуваний формат фото (JPG, PNG, WebP)");
+    if (img.data.length > MAX_IMAGE_B64) throw new HttpError(422, "Фото завелике (до 5 МБ)");
+  }
+  if (!images.length && notes.length < 15) throw new HttpError(422, "Додайте фото дошки або опишіть урок кількома реченнями");
+  if (notes.length > 8000) throw new HttpError(422, "Текст задовгий (до 8000 символів)");
 
   const { data: lesson } = await admin.from("lessons").select("id, title, topic, teacher_id, group_id, student_id, kind").eq("id", input.lesson_id).maybeSingle();
   if (!lesson) throw new HttpError(404, "Урок не знайдено");
@@ -93,15 +105,22 @@ Deno.serve(handle(async (req) => {
     model: settings.model_main,
     system: LESSON_SYSTEM,
     content: [
-      `Lesson: ${lesson.title ?? "English lesson"}${lesson.topic ? ` · planned topic: ${lesson.topic}` : ""}`,
-      `Roster: ${roster.map((s) => s.full_name).join(", ") || "—"}`,
-      "",
-      "Teacher's notes:",
-      notes,
-    ].join("\n"),
+      ...images.map((img): Anthropic.ImageBlockParam => ({ type: "image", source: { type: "base64", media_type: img.media_type as ImageType, data: img.data } })),
+      {
+        type: "text",
+        text: [
+          `Lesson: ${lesson.title ?? "English lesson"}${lesson.topic ? ` · planned topic: ${lesson.topic}` : ""}`,
+          `Roster: ${roster.map((s) => s.full_name).join(", ") || "—"}`,
+          `Board photos attached: ${images.length}`,
+          "",
+          "Teacher's text (students' mistakes, optional comments):",
+          notes || "—",
+        ].join("\n"),
+      },
+    ],
     schema,
     validator,
-    maxTokens: 4000,
+    maxTokens: 6000,
     effort: "medium",
     feature: "lesson_summary",
     userId: profile.id,
@@ -122,7 +141,7 @@ Deno.serve(handle(async (req) => {
 
   const row = {
     lesson_id: lesson.id,
-    notes,
+    notes: notes || null,
     vocabulary: data.vocabulary,
     grammar: data.grammar,
     mistakes,

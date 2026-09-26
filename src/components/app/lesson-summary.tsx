@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { BookMarked, CheckCircle2, Plus, Sparkles, Trash2, Wand2 } from "lucide-react";
+import { BookMarked, Camera, CheckCircle2, Plus, Sparkles, Trash2, Wand2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/form";
 import { Badge, Skeleton } from "@/components/ui/misc";
@@ -15,9 +15,36 @@ type Vocab = LessonSummary["vocabulary"][number];
 type Grammar = LessonSummary["grammar"][number];
 
 const CATEGORIES = Object.keys(MISTAKE_LABEL) as MistakeCategory[];
+const MAX_PHOTOS = 8;
+
+interface BoardPhoto {
+  id: string;
+  url: string; // data URL for the preview
+  media_type: "image/jpeg";
+  data: string; // base64 without the prefix
+}
+
+/** Downscales a board photo in the browser: the model reads ~1568px on the long side anyway, and the upload stays small. */
+async function toBoardPhoto(file: File): Promise<BoardPhoto> {
+  const bitmap = await createImageBitmap(file).catch(() => {
+    throw new Error(`Не вдалося прочитати «${file.name}». Підтримуються JPG, PNG, WebP.`);
+  });
+  const scale = Math.min(1, 1568 / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#fff"; // transparent PNG boards → white, not black
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  const url = canvas.toDataURL("image/jpeg", 0.85);
+  return { id: crypto.randomUUID(), url, media_type: "image/jpeg", data: url.slice(url.indexOf(",") + 1) };
+}
 
 /**
- * FR-11: the teacher writes rough notes, AI structures them, the teacher edits and publishes.
+ * FR-11: the teacher adds photos of the lesson boards and types students' mistakes; AI builds the draft,
+ * the teacher edits and publishes.
  * Publishing attributes mistakes to students' profiles and fills the recap students see (P1: the teacher decides).
  */
 export function LessonSummaryEditor({ lesson, aiEnabled, onNotes }: { lesson: Lesson; aiEnabled: boolean; onNotes: (recap: string) => void }) {
@@ -58,10 +85,41 @@ function Editor({ lesson, saved, roster, aiEnabled, onNotes, onSaved }: {
   const [grammar, setGrammar] = useState<Grammar[]>(saved?.grammar ?? []);
   const [mistakes, setMistakes] = useState<MistakeItem[]>(saved?.mistakes ?? []);
   const [recap, setRecap] = useState(saved?.recap ?? "");
+  const [photos, setPhotos] = useState<BoardPhoto[]>([]);
+  const [reading, setReading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
   const published = saved?.status === "published";
 
+  const addPhotos = async (files: File[]) => {
+    const imgs = files.filter((f) => f.type.startsWith("image/"));
+    if (!imgs.length) return;
+    const room = MAX_PHOTOS - photos.length;
+    if (room <= 0) return void toast.error(`Не більше ${MAX_PHOTOS} фото`);
+    if (imgs.length > room) toast.warning(`Додано перші ${room} — максимум ${MAX_PHOTOS} фото`);
+    setReading(true);
+    try {
+      const next = await Promise.all(imgs.slice(0, room).map(toBoardPhoto));
+      setPhotos((p) => [...p, ...next]);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setReading(false);
+    }
+  };
+  const onPaste = (e: React.ClipboardEvent) => {
+    const files = Array.from(e.clipboardData.files);
+    if (aiEnabled && files.some((f) => f.type.startsWith("image/"))) {
+      e.preventDefault();
+      addPhotos(files);
+    }
+  };
+
   const generate = useMutation({
-    mutationFn: () => callFunction<{ vocabulary: Vocab[]; grammar: Grammar[]; mistakes: MistakeItem[]; recap: string }>("ai-lesson", { lesson_id: lesson.id, notes }),
+    mutationFn: () => callFunction<{ vocabulary: Vocab[]; grammar: Grammar[]; mistakes: MistakeItem[]; recap: string }>("ai-lesson", {
+      lesson_id: lesson.id,
+      notes,
+      images: photos.map(({ media_type, data }) => ({ media_type, data })),
+    }),
     onSuccess: (r) => {
       setVocab(r.vocabulary);
       setGrammar(r.grammar);
@@ -117,12 +175,66 @@ function Editor({ lesson, saved, roster, aiEnabled, onNotes, onSaved }: {
         <h3 className="flex items-center gap-2 font-display text-sm font-semibold"><Wand2 className="size-4 text-violet-500" /> Підсумок уроку</h3>
         {published ? <Badge tone="mint"><CheckCircle2 className="size-3" /> Опубліковано</Badge> : saved ? <Badge tone="sun">Чернетка</Badge> : null}
       </div>
-      <Field label="Нотатки викладача" hint="як завгодно: що робили, слова, хто де помилявся">
-        <Textarea rows={4} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Past Simple vs Present Perfect. Слова: journey, luggage, to book a room… Софія: I have been in Paris last year." />
+      {aiEnabled && (
+        <div onPaste={onPaste}>
+          <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-2">
+            <span className="text-sm font-semibold text-ink-soft">Фото дошок <span className="font-normal text-mute">· {photos.length}/{MAX_PHOTOS}</span></span>
+            <span className="text-xs text-mute">лексику, граматику й тему ШІ візьме з дошок</span>
+          </div>
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+            {photos.map((p, i) => (
+              <div key={p.id} className="relative aspect-[4/3] overflow-hidden rounded-xl border border-line bg-white">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={p.url} alt={`Дошка ${i + 1}`} className="size-full object-cover" />
+                <button
+                  type="button"
+                  onClick={() => setPhotos((all) => all.filter((x) => x.id !== p.id))}
+                  className="absolute top-1 right-1 flex size-7 cursor-pointer items-center justify-center rounded-full bg-ocean-950/60 text-white transition hover:bg-red-600"
+                  aria-label={`Прибрати фото ${i + 1}`}
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+            ))}
+            {photos.length < MAX_PHOTOS && (
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                disabled={reading}
+                className="flex aspect-[4/3] cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-seal-300 bg-white/70 p-2 text-center text-xs font-medium text-seal-700 transition hover:bg-seal-50 disabled:opacity-60"
+              >
+                <Camera className="size-5" />
+                {reading ? "Обробка…" : "Додати фото"}
+                <span className="hidden text-[11px] font-normal text-mute sm:block">або Ctrl+V скриншот</span>
+              </button>
+            )}
+          </div>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            multiple
+            hidden
+            onChange={(e) => {
+              addPhotos(Array.from(e.target.files ?? []));
+              e.target.value = "";
+            }}
+          />
+          <p className="mt-1.5 text-xs text-mute">Фото лише аналізує ШІ — вони ніде не зберігаються.</p>
+        </div>
+      )}
+      <Field label="Помилки учнів" hint={roster.length > 1 ? "хто і як помилився — з іменами" : "як учень сказав → як правильно"}>
+        <Textarea
+          rows={3}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          onPaste={onPaste}
+          placeholder={roster.length > 1 ? "Софія: I have been in Paris last year. Марк: he don't like…" : "I have been in Paris last year; he don't like…"}
+        />
       </Field>
       {aiEnabled ? (
-        <Button type="button" variant="soft" className="justify-self-start" onClick={() => generate.mutate()} loading={generate.isPending} disabled={notes.trim().length < 15}>
-          <Sparkles /> {vocab.length || grammar.length ? "Перегенерувати з ШІ" : "Структурувати з ШІ"}
+        <Button type="button" variant="soft" className="justify-self-start" onClick={() => generate.mutate()} loading={generate.isPending} disabled={reading || (!photos.length && notes.trim().length < 15)}>
+          <Sparkles /> {vocab.length || grammar.length ? "Перегенерувати з ШІ" : "Скласти підсумок з ШІ"}
         </Button>
       ) : (
         <p className="text-xs text-mute">ШІ-модуль вимкнено — заповніть підсумок вручну.</p>
