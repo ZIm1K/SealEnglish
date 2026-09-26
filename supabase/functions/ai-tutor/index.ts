@@ -7,7 +7,7 @@
 import { admin, cors, handle, HttpError, isInternal, json, logError, readJson, requireUser, type Profile } from "../_shared/core.ts";
 import {
   aiClient, aiSettings, assertGlobalBudget, CRISIS_REPLY, FLAG_LABEL, logUsage, mistakeJsonSchema, mistakesValidator,
-  moderate, structuredCall, tutorQuota, z, type AiSettings, type Anthropic, type ModerationFlag,
+  moderate, structuredCall, supportsEffort, tutorQuota, z, type AiSettings, type Anthropic, type ModerationFlag,
 } from "../_shared/ai.ts";
 import {
   PRACTICE_MODES, PRACTICE_SUMMARY_SYSTEM, TUTOR_SAFETY_MARKER, TUTOR_SYSTEM, tutorContext, tutorGreeting,
@@ -214,12 +214,12 @@ async function message(me: Profile, input: Any): Promise<Response> {
     for (const t of turns) messages.push({ role: t.role as "user" | "assistant", content: t.content });
     messages.push({ role: "user", content: mod.masked });
 
-    // Chat replies are short, so the fast model gives the snappiest first token; Haiku takes no effort setting.
+    // Chat replies are short, so the fast model gives the snappiest first token; only full-size models take an effort setting.
     const model = settings.model_fast;
     const stream = client.messages.stream({
       model,
       max_tokens: 700,
-      ...(model.includes("haiku") ? {} : { output_config: { effort: "low" as const } }),
+      ...(supportsEffort(model) ? { output_config: { effort: "low" as const } } : {}),
       cache_control: { type: "ephemeral" },
       system: [
         { type: "text", text: TUTOR_SYSTEM },
