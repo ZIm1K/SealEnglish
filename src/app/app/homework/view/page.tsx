@@ -13,7 +13,7 @@ import { AttachmentList, FilePicker, uploadFiles } from "@/components/app/files"
 import { Seal } from "@/components/mascot/Seal";
 import { Button } from "@/components/ui/button";
 import { Checkbox, Field, Input, Textarea } from "@/components/ui/form";
-import { Avatar, Badge, Card, CardHeader, Skeleton } from "@/components/ui/misc";
+import { Avatar, Badge, Card, CardHeader, Linkify, Skeleton } from "@/components/ui/misc";
 import { Dialog, DialogContent } from "@/components/ui/overlay";
 import { callFunction, supabase } from "@/lib/supabase";
 import { ASSIGNMENT_SELECT, targetLabel, useAiFeatures } from "@/lib/queries";
@@ -85,7 +85,7 @@ function View() {
       <div className={cn("grid gap-6", !isOwner && "lg:grid-cols-[1.1fr_1fr]")}>
         <Card className="p-5 sm:p-6">
           <h2 className="font-display font-semibold">Завдання</h2>
-          {a.description ? <p className="mt-3 leading-relaxed whitespace-pre-wrap text-ink-soft">{a.description}</p> : <p className="mt-3 text-sm text-mute">Без опису</p>}
+          {a.description ? <p className="mt-3 leading-relaxed whitespace-pre-wrap text-ink-soft"><Linkify text={a.description} /></p> : <p className="mt-3 text-sm text-mute">Без опису</p>}
           {a.attachments?.length > 0 && <div className="mt-5"><AttachmentList items={a.attachments} /></div>}
         </Card>
         {isOwner ? <ReviewPanel a={a} /> : <SubmitPanel key={submissionKey(a, me.id)} a={a} />}
@@ -215,10 +215,10 @@ function SubmitPanel({ a }: { a: Assignment }) {
           {mine.feedback && (
             <div className="rounded-2xl border border-line bg-white p-4">
               <div className="text-xs font-semibold text-mute">Коментар викладача</div>
-              <p className="mt-1 whitespace-pre-wrap">{mine.feedback}</p>
+              <p className="mt-1 whitespace-pre-wrap"><Linkify text={mine.feedback} /></p>
             </div>
           )}
-          {mine.body && <p className="whitespace-pre-wrap text-ink-soft">{mine.body}</p>}
+          {mine.body && <p className="whitespace-pre-wrap text-ink-soft"><Linkify text={mine.body} /></p>}
           <AttachmentList items={mine.attachments} />
           {mine.status !== "reviewed" && (
             <Button variant="outline" onClick={() => setEditing(true)}><RotateCcw /> {mine.status === "needs_revision" ? "Доопрацювати" : "Змінити відповідь"}</Button>
@@ -367,7 +367,7 @@ function ReviewForm({ a, s, onDone }: { a: Assignment; s: Submission; onDone: ()
 
   return (
     <div className="grid gap-4 border-t border-line p-4">
-      {s.body && <p className="rounded-2xl bg-white p-4 whitespace-pre-wrap ring-1 ring-line">{s.body}</p>}
+      {s.body && <p className="rounded-2xl bg-white p-4 whitespace-pre-wrap ring-1 ring-line"><Linkify text={s.body} /></p>}
       <AttachmentList items={s.attachments} />
 
       {s.status === "submitted" && (draft || ai?.review) && (

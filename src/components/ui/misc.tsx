@@ -85,3 +85,33 @@ export function CardHeader({
     </div>
   );
 }
+
+const URL_RE = /(https?:\/\/[^\s<>"']+|www\.[^\s<>"']+)/gi;
+
+/** Plain text with http(s)/www links made clickable (opens in a new tab). Trailing punctuation stays outside the link. */
+export function Linkify({ text, className }: { text: string; className?: string }) {
+  const parts = text.split(URL_RE);
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (i % 2 === 0) return part;
+        const url = part.replace(/[.,;:!?)\]]+$/, "");
+        const tail = part.slice(url.length);
+        return (
+          <span key={i}>
+            <a
+              href={url.startsWith("www.") ? `https://${url}` : url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className={cn("font-medium break-all text-seal-700 underline decoration-seal-300 underline-offset-2 hover:text-seal-800", className)}
+            >
+              {url}
+            </a>
+            {tail}
+          </span>
+        );
+      })}
+    </>
+  );
+}

@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/overlay";
 import { Field, Input, Segmented, Select, Textarea, Checkbox } from "@/components/ui/form";
-import { Avatar, Badge } from "@/components/ui/misc";
+import { Avatar, Badge, Linkify } from "@/components/ui/misc";
 import { callFunction, supabase } from "@/lib/supabase";
 import { countdown, fmtRelativeDay, fmtTime, isKyivZone, toDateInput } from "@/lib/dates";
 import { LESSON_SELECT, targetLabel, useAiFeatures, useGroups, usePeople } from "@/lib/queries";
@@ -550,7 +550,7 @@ function LessonDetails({ lesson, onClose }: { lesson: Lesson; onClose: () => voi
       {!canEdit && (
         <div className="grid gap-3 text-sm">
           {lesson.topic && <p><b>Тема:</b> {lesson.topic}</p>}
-          {lesson.teacher_notes && <p className="rounded-2xl bg-white p-3 whitespace-pre-wrap ring-1 ring-line"><b>Підсумок від викладача:</b> {lesson.teacher_notes}</p>}
+          {lesson.teacher_notes && <p className="rounded-2xl bg-white p-3 whitespace-pre-wrap ring-1 ring-line"><b>Підсумок від викладача:</b> <Linkify text={lesson.teacher_notes} /></p>}
           {me.role === "student" && <LessonTopicsForStudent lessonId={lesson.id} />}
           {me.role === "student" && ai?.tutor && st === "past" && (
             <Button asChild variant="soft" className="justify-self-start">

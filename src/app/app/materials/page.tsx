@@ -10,7 +10,7 @@ import { FilePicker, uploadFiles } from "@/components/app/files";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/overlay";
 import { Field, Input, Segmented, Select, Textarea } from "@/components/ui/form";
-import { Badge, Skeleton } from "@/components/ui/misc";
+import { Badge, Linkify, Skeleton } from "@/components/ui/misc";
 import { signedUrl, supabase } from "@/lib/supabase";
 import { useGroups, usePeople } from "@/lib/queries";
 import { fmtDate } from "@/lib/dates";
@@ -163,7 +163,7 @@ export default function MaterialsPage() {
       <Dialog open={!!reading} onOpenChange={(v) => !v && setReading(null)}>
         {reading && (
           <DialogContent title={reading.title} description={reading.description ?? undefined} size="lg">
-            <div className="prose max-w-none leading-relaxed whitespace-pre-wrap text-ink-soft">{reading.body}</div>
+            <div className="prose max-w-none leading-relaxed whitespace-pre-wrap text-ink-soft"><Linkify text={reading.body ?? ""} /></div>
           </DialogContent>
         )}
       </Dialog>
