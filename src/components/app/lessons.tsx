@@ -31,13 +31,13 @@ export function lessonState(l: Lesson) {
   return "upcoming" as const;
 }
 
-export function JoinButton({ lesson, size = "sm", className }: { lesson: Lesson; size?: "sm" | "md" | "lg"; className?: string }) {
+export function JoinButton({ lesson, size = "sm", className, compact }: { lesson: Lesson; size?: "sm" | "md" | "lg"; className?: string; /** icon-only on phones */ compact?: boolean }) {
   const st = lessonState(lesson);
   if (!lesson.meet_url || st === "cancelled" || st === "past") return null;
   return (
     <Button asChild size={size} variant={st === "live" ? "primary" : "soft"} className={cn(st === "live" && "animate-pulse", className)}>
       <a href={lesson.meet_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
-        <Video /> {st === "live" ? "Приєднатися" : "Meet"}
+        <Video /> <span className={cn(compact && "sr-only sm:not-sr-only")}>{st === "live" ? "Приєднатися" : "Meet"}</span>
       </a>
     </Button>
   );
@@ -58,12 +58,12 @@ export function LessonRow({ lesson, onClick, showTeacher }: { lesson: Lesson; on
         }
       }}
       className={cn(
-        "group flex items-center gap-4 rounded-2xl border border-line bg-white p-3.5 transition",
+        "group flex items-center gap-3 rounded-2xl border border-line bg-white p-3 transition sm:gap-4 sm:p-3.5",
         onClick && "cursor-pointer hover:border-seal-300 hover:shadow-soft",
         st === "cancelled" && "opacity-55",
       )}
     >
-      <div className={cn("flex w-16 shrink-0 flex-col items-center rounded-xl py-2", color.soft)}>
+      <div className={cn("flex w-14 shrink-0 flex-col sm:w-16 items-center rounded-xl py-2", color.soft)}>
         <span className={cn("font-display text-sm font-bold", color.text)}>{fmtTime(lesson.starts_at)}</span>
         <span className="text-[11px] text-mute">{fmtTime(lesson.ends_at)}</span>
       </div>
@@ -83,7 +83,7 @@ export function LessonRow({ lesson, onClick, showTeacher }: { lesson: Lesson; on
           {st === "upcoming" && <span className="text-seal-700">· {countdown(lesson.starts_at)}</span>}
         </div>
       </div>
-      <JoinButton lesson={lesson} />
+      <JoinButton lesson={lesson} compact className="shrink-0" />
     </div>
   );
 }

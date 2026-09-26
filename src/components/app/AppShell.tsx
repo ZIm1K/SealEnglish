@@ -229,7 +229,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </MenuContent>
           </Menu>
         </header>
-        <main id="main" tabIndex={-1} className="flex-1 px-4 py-6 outline-none sm:px-6 lg:px-8 lg:py-8">
+        <main id="main" tabIndex={-1} className="app-main min-w-0 flex-1 overflow-x-clip px-4 py-6 outline-none sm:px-6 lg:px-8 lg:py-8">
           <motion.div key={pathname} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
             {children}
           </motion.div>

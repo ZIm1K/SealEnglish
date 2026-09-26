@@ -150,6 +150,11 @@
   .card {
     @apply rounded-3xl border border-line bg-white shadow-soft;
   }
+  /* Cabinet: grid/flex children may shrink below their content width, so a long row never widens the page on phones. */
+  .app-main .grid > *,
+  .app-main .flex > .min-w-0 {
+    min-width: 0;
+  }
   .skeleton {
     @apply rounded-xl;
     background: linear-gradient(90deg, #eef4fb 0%, #f7fbff 50%, #eef4fb 100%);
