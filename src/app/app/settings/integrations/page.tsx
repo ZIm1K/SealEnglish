@@ -5,11 +5,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import Link from "next/link";
-import { Activity, Bot, CheckCircle2, Copy, ExternalLink, Globe, Link2Off, Plug, Send, ShieldAlert, Video, CircleAlert } from "lucide-react";
+import { Activity, Bot, CheckCircle2, Copy, ExternalLink, Globe, Link2Off, Mic, Plug, Send, ShieldAlert, Video, CircleAlert } from "lucide-react";
 import { PageHeader, EmptyState } from "@/components/app/AppShell";
 import { useMe } from "@/components/app/session";
 import { Button } from "@/components/ui/button";
-import { Field, Input } from "@/components/ui/form";
+import { Field, Input, Select } from "@/components/ui/form";
 import { Badge, Card, CardHeader, Skeleton } from "@/components/ui/misc";
 import { callFunction, supabase } from "@/lib/supabase";
 import { fmtDateTime } from "@/lib/dates";
@@ -81,6 +81,7 @@ function Inner() {
           </div>
           <div className="grid gap-6 lg:grid-cols-2">
             <AiBlock st={st} onChange={refresh} />
+            <SttBlock />
             <HealthBlock />
           </div>
           <SiteBlock st={st} onChange={refresh} />
@@ -302,6 +303,78 @@ function AiBlock({ st, onChange }: { st: Status; onChange: () => void }) {
 }
 
 /** NFR-10 / ADR-03: delivery failures and Edge Function errors are visible to the admin. */
+interface SttStatus {
+  configured: boolean;
+  provider: string;
+  key_hint: string | null;
+  usd_per_hour: number;
+  providers: { id: string; label: string; usd_per_hour: number }[];
+}
+
+/** Speech-to-text for lesson recordings (Claude doesn't take audio). Groq is the default: the cheapest Whisper. */
+function SttBlock() {
+  const qc = useQueryClient();
+  const { data: st, refetch } = useQuery({
+    queryKey: ["stt-status"],
+    queryFn: () => callFunction<SttStatus>("ai-transcribe", { action: "status" }),
+  });
+  const [provider, setProvider] = useState("groq");
+  const [key, setKey] = useState("");
+  const done = (msg: string) => {
+    toast.success(msg);
+    setKey("");
+    refetch();
+    qc.invalidateQueries({ queryKey: ["ai-features"] });
+  };
+  const save = useMutation({
+    mutationFn: () => callFunction<SttStatus>("ai-transcribe", { action: "save_key", provider, key }),
+    onSuccess: () => done("Ключ перевірено й збережено у Vault"),
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const remove = useMutation({
+    mutationFn: () => callFunction<SttStatus>("ai-transcribe", { action: "remove_key" }),
+    onSuccess: () => done("Ключ видалено, запис уроків вимкнено"),
+    onError: (e: Error) => toast.error(e.message),
+  });
+  if (!st) return <Skeleton className="h-48" />;
+  const current = st.providers.find((p) => p.id === st.provider);
+  const hourUah = (usd: number) => `≈ $${usd.toFixed(2)} за годину уроку`;
+  return (
+    <Card>
+      <CardHeader
+        title={<span className="flex items-center gap-2"><Mic className="size-5 text-violet-500" /> Розшифровка уроків</span>}
+        description="Викладач записує урок у кабінеті → текст → ШІ сам складає підсумок: лексику, граматику й помилки. Аудіо видаляється одразу після розшифровки."
+        action={st.configured ? <Badge tone="mint">Увімкнено</Badge> : <Badge tone="gray">Не налаштовано</Badge>}
+      />
+      <div className="grid gap-4 p-5 sm:p-6">
+        {st.configured ? (
+          <div className="flex flex-wrap items-center gap-2 rounded-2xl bg-violet-50 p-4 text-sm">
+            {current?.label} · ключ <code>{st.key_hint}</code> · {hourUah(st.usd_per_hour)}
+            <Button size="sm" variant="ghost" className="ml-auto text-red-600" onClick={() => confirm("Видалити ключ і вимкнути запис уроків?") && remove.mutate()}><Link2Off /> Видалити</Button>
+          </div>
+        ) : (
+          <ol className="grid gap-2">
+            <Step n={1}>Зареєструйтесь на <a href="https://console.groq.com/keys" target="_blank" rel="noreferrer" className="font-semibold text-seal-700 underline">console.groq.com</a> і створіть API-ключ (найдешевший варіант, Whisper large v3).</Step>
+            <Step n={2}>Вставте ключ нижче. ШІ-модуль і «Підсумки уроків» мають бути увімкнені.</Step>
+            <Step n={3}>Кнопка «Записати урок» з&apos;явиться у викладачів у картці уроку (Chrome або Edge на комп&apos;ютері).</Step>
+          </ol>
+        )}
+        <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="grid gap-3 sm:grid-cols-[14rem_1fr]">
+          <Field label="Сервіс">
+            <Select value={provider} onChange={(e) => setProvider(e.target.value)}>
+              {st.providers.map((p) => <option key={p.id} value={p.id}>{p.label} · {hourUah(p.usd_per_hour)}</option>)}
+            </Select>
+          </Field>
+          <Field label={st.configured ? "Замінити ключ" : "Ключ API"}>
+            <Input value={key} onChange={(e) => setKey(e.target.value)} placeholder={provider === "groq" ? "gsk_…" : "sk-…"} type="password" autoComplete="off" />
+          </Field>
+          <Button type="submit" className="sm:col-span-2" disabled={!key} loading={save.isPending}><Plug /> {st.configured ? "Оновити ключ" : "Перевірити й зберегти"}</Button>
+        </form>
+      </div>
+    </Card>
+  );
+}
+
 function HealthBlock() {
   const { data: h } = useQuery({
     queryKey: ["admin-health"],

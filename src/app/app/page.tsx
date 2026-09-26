@@ -8,6 +8,7 @@ import { ArrowRight, BookOpen, CalendarPlus, Inbox, Send, Sparkles, Users, Users
 import { useMe, isStaffRole } from "@/components/app/session";
 import { EmptyState } from "@/components/app/AppShell";
 import { JoinButton, LessonDialog, LessonRow, NewLessonDialog } from "@/components/app/lessons";
+import { RecordLessonButton } from "@/components/app/recorder";
 import { Seal } from "@/components/mascot/Seal";
 import { Button } from "@/components/ui/button";
 import { Avatar, Badge, Card, CardHeader, Skeleton } from "@/components/ui/misc";
@@ -47,6 +48,7 @@ export default function Dashboard() {
 
 function Hello({ next }: { next?: Lesson }) {
   const me = useMe();
+  const { data: ai } = useAiFeatures();
   const first = me.full_name.split(" ")[0] || "друже";
   return (
     <section className="relative overflow-hidden rounded-4xl bg-gradient-to-br from-ocean-900 via-ocean-800 to-seal-700 p-6 text-white shadow-lift sm:p-8">
@@ -65,6 +67,7 @@ function Hello({ next }: { next?: Lesson }) {
               <div className="text-sm text-seal-100/75">{targetLabel(next)}{next.topic ? ` · ${next.topic}` : ""}</div>
               <div className="mt-4 flex flex-wrap gap-2">
                 <JoinButton lesson={next} size="md" />
+                {me.role !== "student" && next.teacher_id === me.id && <RecordLessonButton lesson={next} enabled={!!ai?.transcribe} variant="glass" />}
                 <Button asChild variant="glass" size="md"><Link href="/app/schedule/"><CalendarDays /> Розклад</Link></Button>
               </div>
             </div>

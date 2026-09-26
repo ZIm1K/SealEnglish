@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { addDays, format, isSameDay, isToday } from "date-fns";
 import { uk } from "date-fns/locale";
 import { ChevronLeft, ChevronRight, Plus, LayoutGrid, List } from "lucide-react";
@@ -10,7 +11,8 @@ import { useMe, isStaffRole } from "@/components/app/session";
 import { Button } from "@/components/ui/button";
 import { Segmented, Select } from "@/components/ui/form";
 import { Skeleton } from "@/components/ui/misc";
-import { useLessons, usePeople, targetLabel } from "@/lib/queries";
+import { LESSON_SELECT, useLessons, usePeople, targetLabel } from "@/lib/queries";
+import { supabase } from "@/lib/supabase";
 import { fmtRelativeDay, fmtTime, weekDays } from "@/lib/dates";
 import { GROUP_COLORS, type Lesson } from "@/lib/types";
 import { cn, plural } from "@/lib/utils";
@@ -49,6 +51,14 @@ function layoutDay(list: Lesson[]) {
 }
 
 export default function SchedulePage() {
+  return (
+    <Suspense>
+      <Schedule />
+    </Suspense>
+  );
+}
+
+function Schedule() {
   const me = useMe();
   const staff = isStaffRole(me.role);
   const canCreate = staff || me.role === "teacher";
@@ -59,6 +69,22 @@ export default function SchedulePage() {
   const [teacher, setTeacher] = useState<string>("");
   const [open, setOpen] = useState<Lesson | null>(null);
   const [creating, setCreating] = useState(false);
+
+  // /app/schedule/?lesson=<id> (e.g. from a "summary ready" notification) opens that lesson.
+  const params = useSearchParams();
+  const router = useRouter();
+  const linked = params.get("lesson");
+  useEffect(() => {
+    if (!linked) return;
+    let alive = true;
+    supabase.from("lessons").select(LESSON_SELECT).eq("id", linked).maybeSingle().then(({ data }) => {
+      if (alive && data) setOpen(data as Lesson);
+      router.replace("/app/schedule/", { scroll: false });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [linked, router]);
   const [createDate, setCreateDate] = useState<Date | undefined>();
 
   const days = useMemo(() => weekDays(anchor), [anchor]);

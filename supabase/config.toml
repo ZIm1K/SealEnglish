@@ -27,6 +27,9 @@ verify_jwt = false
 [functions.ai-review]
 verify_jwt = false
 
+[functions.ai-transcribe]
+verify_jwt = false
+
 [functions.ai-lesson]
 verify_jwt = false
 

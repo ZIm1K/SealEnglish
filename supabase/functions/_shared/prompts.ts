@@ -161,7 +161,11 @@ export const LESSON_SYSTEM = `You turn the materials of an English lesson into a
 - mistakes: take them from the teacher's text, typically written as "wrong - right" or "wrong → right". "example" is the student's full wrong phrase exactly as written ("I want some eat"), "correction" is the full corrected phrase ("I want some food"); they must differ. Never turn an instruction or a topic into a mistake. From the boards, add only corrections that are clearly marked as a student's error (crossed out / corrected), with "student" null unless the name is written next to it. If the text attributes a mistake to a specific student, set "student" to that student's name exactly as it appears in the roster; otherwise null.
 - recap: 2–4 sentences in Ukrainian addressed to the students: what we did and what to review. No names of students.
 - topic: a short topic title in English (or Ukrainian if the lesson is clearly about a Ukrainian-language task).
-- If a board is unreadable, skip it rather than guessing.`;
+- If a board is unreadable, skip it rather than guessing.
+- You may also get an automatic transcript of the lesson, with lines "[mm:ss] ВИКЛАДАЧ: …" (the teacher's microphone) and "[mm:ss] УЧНІ: …" (everyone else in the call). When it is present it is the main source:
+  - vocabulary and grammar: what the teacher introduced, explained, drilled or asked about — not every word that was said. Skip greetings, small talk, organisational talk and technical problems.
+  - mistakes: only errors in the students' own English in УЧНІ lines, especially the ones the teacher corrected or repeated correctly right after. "example" is the student's words, "correction" the teacher's correction or the correct form. Never count Ukrainian speech, hesitations, false starts, reading aloud from the board, or garbled recognition noise as mistakes; if unsure whether it is a real error or a recognition error, leave it out. Attribute a mistake to a student only if the teacher addresses them by name right before or after it (or it is a one-to-one lesson); otherwise "student" is null.
+  - recap: what the lesson really covered according to the transcript.`;
 
 export const RISK_SYSTEM = `You help a manager of an online English school understand why a student might quit. Given numeric signals for the last 4 weeks, write 2–3 short sentences in Ukrainian: the main reasons (only those supported by the signals) and one concrete next step (e.g. call the parents, offer another group time, ask the teacher). No guessing beyond the data, no judgemental language.`;
 

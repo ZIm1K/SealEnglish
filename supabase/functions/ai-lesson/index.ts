@@ -1,8 +1,9 @@
 // Lesson summary (FR-11): photos of the lesson boards + the teacher's text about students' mistakes →
 // structured vocabulary / grammar / mistakes draft. The teacher edits the draft and publishes it (RPC publish_lesson_summary).
 //   POST {lesson_id, notes, images?: [{media_type, data(base64)}]} (teacher / staff JWT) → saved draft
-// Photos are analysed only, never stored.
-import { admin, handle, HttpError, isStaff, json, readJson, requireUser } from "../_shared/core.ts";
+// Photos are analysed only, never stored. The lesson transcript (lesson_transcripts) is used when use_transcript is set;
+// ai-transcribe calls this internally with {use_transcript: true, auto: true} to draft the summary and notify the teacher.
+import { admin, handle, HttpError, isInternal, isStaff, json, readJson, requireUser } from "../_shared/core.ts";
 import { aiClient, aiSettings, assertGlobalBudget, MISTAKE_CATEGORIES, structuredCall, z, type Anthropic } from "../_shared/ai.ts";
 import { LESSON_SYSTEM, levelGuide } from "../_shared/prompts.ts";
 
@@ -70,8 +71,9 @@ const validator = z.object({
 
 Deno.serve(handle(async (req) => {
   if (req.method !== "POST") throw new HttpError(405, "Method not allowed");
-  const { profile } = await requireUser(req, ["teacher", "manager", "admin"]);
-  const input = await readJson<{ lesson_id: string; notes: string; images?: { media_type: string; data: string }[] }>(req);
+  const internal = await isInternal(req);
+  const profile = internal ? null : (await requireUser(req, ["teacher", "manager", "admin"])).profile;
+  const input = await readJson<{ lesson_id: string; notes?: string; images?: { media_type: string; data: string }[]; use_transcript?: boolean; auto?: boolean }>(req);
   const notes = String(input.notes ?? "").trim();
   const images = Array.isArray(input.images) ? input.images : [];
   if (images.length > MAX_IMAGES) throw new HttpError(422, `Не більше ${MAX_IMAGES} фото`);
@@ -79,13 +81,25 @@ Deno.serve(handle(async (req) => {
     if (!IMAGE_TYPES.includes(img?.media_type as ImageType) || typeof img.data !== "string" || !img.data) throw new HttpError(422, "Непідтримуваний формат фото (JPG, PNG, WebP)");
     if (img.data.length > MAX_IMAGE_B64) throw new HttpError(422, "Фото завелике (до 5 МБ)");
   }
-  if (!images.length && notes.length < 15) throw new HttpError(422, "Додайте фото дошки або опишіть урок кількома реченнями");
   if (notes.length > 8000) throw new HttpError(422, "Текст задовгий (до 8000 символів)");
 
   const { data: lesson } = await admin.from("lessons").select("id, title, topic, teacher_id, group_id, student_id, kind").eq("id", input.lesson_id).maybeSingle();
   if (!lesson) throw new HttpError(404, "Урок не знайдено");
-  if (!isStaff(profile) && lesson.teacher_id !== profile.id) throw new HttpError(403, "Це не ваш урок");
+  if (profile && !isStaff(profile) && lesson.teacher_id !== profile.id) throw new HttpError(403, "Це не ваш урок");
   if (lesson.kind === "trial") throw new HttpError(422, "Для пробних уроків підсумок не створюється");
+  const actorId: string = profile?.id ?? lesson.teacher_id;
+
+  let transcript = "";
+  if (input.use_transcript) {
+    const { data: t } = await admin.from("lesson_transcripts").select("status, text").eq("lesson_id", lesson.id).maybeSingle();
+    if (t?.status === "ready" && t.text) transcript = t.text.slice(0, 90_000); // ~75 min of talk
+  }
+  if (!images.length && !transcript && notes.length < 15) throw new HttpError(422, "Додайте фото дошки, запис уроку або опишіть урок кількома реченнями");
+  if (input.auto) {
+    // The automatic draft never overwrites the teacher's own work.
+    const { data: existing } = await admin.from("lesson_summaries").select("lesson_id").eq("lesson_id", lesson.id).maybeSingle();
+    if (existing) return json({ ok: true, skipped: true });
+  }
 
   const roster: { id: string; full_name: string; level: string | null }[] = [];
   if (lesson.group_id) {
@@ -119,9 +133,11 @@ Deno.serve(handle(async (req) => {
           `Write the vocabulary meanings, example sentences and the recap for the weakest level in the group (${level ?? "unknown"}):`,
           levelGuide(level),
           `Board photos attached: ${images.length}`,
+          roster.length === 1 ? `One-to-one lesson: every УЧНІ line is ${roster[0].full_name}.` : "",
           "",
           "Teacher's text (students' mistakes, optional comments):",
           notes || "—",
+          ...(transcript ? ["", "Lesson transcript (automatic speech recognition, may contain errors):", transcript] : []),
         ].join("\n"),
       },
     ],
@@ -130,7 +146,7 @@ Deno.serve(handle(async (req) => {
     maxTokens: 6000,
     effort: "medium",
     feature: "lesson_summary",
-    userId: profile.id,
+    userId: actorId,
     refId: lesson.id,
   });
 
@@ -154,13 +170,23 @@ Deno.serve(handle(async (req) => {
     grammar: data.grammar,
     mistakes,
     recap: data.recap,
-    source: "teacher_form",
+    source: transcript ? "transcript" : "teacher_form",
     status: "draft",
     model: settings.model_main,
-    created_by: profile.id,
+    created_by: actorId,
   };
   const { error } = await admin.from("lesson_summaries").upsert(row);
   if (error) throw error;
   if (!lesson.topic && data.topic) await admin.from("lessons").update({ topic: data.topic.slice(0, 200) }).eq("id", lesson.id);
+  if (input.auto) {
+    await admin.from("notifications").insert({
+      user_id: lesson.teacher_id,
+      kind: "lesson_summary_ready",
+      title: "Підсумок уроку готовий ✨",
+      body: `${lesson.title ?? "Урок"}: ${data.vocabulary.length} слів, ${data.grammar.length} тем граматики, ${mistakes.length} помилок. Перевірте й опублікуйте.`,
+      link: `/app/schedule/?lesson=${lesson.id}`,
+      data: { lesson_id: lesson.id },
+    });
+  }
   return json({ ...row, topic: data.topic, roster: roster.map(({ id, full_name }) => ({ id, full_name })) });
 }));

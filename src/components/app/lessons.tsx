@@ -18,6 +18,7 @@ import { GROUP_COLORS, LEAD_STATUS, type AttendanceStatus, type Lead, type Lesso
 import { cn } from "@/lib/utils";
 import { useMe, isStaffRole } from "./session";
 import { LessonSummaryEditor, LessonTopicsForStudent } from "./lesson-summary";
+import { RecordLessonButton } from "./recorder";
 
 const MAX_TRIAL_LEADS = 4;
 
@@ -537,6 +538,7 @@ function LessonDetails({ lesson, onClose }: { lesson: Lesson; onClose: () => voi
           {lesson.meet_url ? (
             <>
               <JoinButton lesson={lesson} size="md" />
+              {canEdit && <RecordLessonButton lesson={lesson} enabled={!!ai?.transcribe} />}
               <Button asChild variant="outline" size="md"><a href={lesson.meet_url} target="_blank" rel="noreferrer"><ExternalLink /> Посилання</a></Button>
             </>
           ) : canEdit && st !== "cancelled" ? (

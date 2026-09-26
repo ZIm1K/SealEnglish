@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { BookMarked, Camera, CheckCircle2, Plus, Sparkles, Trash2, Wand2, X } from "lucide-react";
+import { AlertTriangle, BookMarked, Camera, CheckCircle2, Loader2, Mic, Plus, RotateCcw, Sparkles, Trash2, Wand2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/form";
 import { Badge, Skeleton } from "@/components/ui/misc";
@@ -15,6 +15,13 @@ type Vocab = LessonSummary["vocabulary"][number];
 type Grammar = LessonSummary["grammar"][number];
 
 const CATEGORIES = Object.keys(MISTAKE_LABEL) as MistakeCategory[];
+
+interface Transcript {
+  status: "recording" | "processing" | "ready" | "failed";
+  text: string | null;
+  duration_sec: number | null;
+  error: string | null;
+}
 const MAX_PHOTOS = 8;
 
 interface BoardPhoto {
@@ -90,6 +97,26 @@ function Editor({ lesson, saved, roster, aiEnabled, onNotes, onSaved }: {
   const fileRef = useRef<HTMLInputElement>(null);
   const published = saved?.status === "published";
 
+  const { data: transcript, refetch: refetchTranscript } = useQuery({
+    queryKey: ["lesson-transcript", lesson.id],
+    queryFn: async () => {
+      const { data } = await supabase.from("lesson_transcripts").select("status, text, duration_sec, error").eq("lesson_id", lesson.id).maybeSingle();
+      return (data as Transcript | null) ?? null;
+    },
+    refetchInterval: (q) => (q.state.data?.status === "processing" ? 5000 : false),
+  });
+  const [withTranscript, setWithTranscript] = useState(true);
+  const useTranscript = transcript?.status === "ready" && withTranscript;
+  const retranscribe = useMutation({
+    mutationFn: () => callFunction("ai-transcribe", { action: "transcribe", lesson_id: lesson.id }),
+    onSuccess: () => toast.success("Урок розшифровано"),
+    onError: (e: Error) => toast.error(e.message),
+    onSettled: () => {
+      refetchTranscript();
+      onSaved();
+    },
+  });
+
   const addPhotos = async (files: File[]) => {
     const imgs = files.filter((f) => f.type.startsWith("image/"));
     if (!imgs.length) return;
@@ -119,6 +146,7 @@ function Editor({ lesson, saved, roster, aiEnabled, onNotes, onSaved }: {
       lesson_id: lesson.id,
       notes,
       images: photos.map(({ media_type, data }) => ({ media_type, data })),
+      use_transcript: useTranscript,
     }),
     onSuccess: (r) => {
       setVocab(r.vocabulary);
@@ -175,6 +203,37 @@ function Editor({ lesson, saved, roster, aiEnabled, onNotes, onSaved }: {
         <h3 className="flex items-center gap-2 font-display text-sm font-semibold"><Wand2 className="size-4 text-violet-500" /> Підсумок уроку</h3>
         {published ? <Badge tone="mint"><CheckCircle2 className="size-3" /> Опубліковано</Badge> : saved ? <Badge tone="sun">Чернетка</Badge> : null}
       </div>
+      {transcript && (
+        <div className={cn("rounded-2xl border p-3 text-sm", transcript.status === "failed" ? "border-coral-200 bg-coral-50/60" : "border-violet-200 bg-violet-50/60")}>
+          {transcript.status === "ready" ? (
+            <>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                <span className="flex items-center gap-2 font-semibold text-violet-800"><Mic className="size-4" /> Запис уроку розшифровано{transcript.duration_sec ? ` · ${Math.max(1, Math.round(transcript.duration_sec / 60))} хв` : ""}</span>
+                <label className="ml-auto flex cursor-pointer items-center gap-1.5 text-xs text-ink-soft">
+                  <input type="checkbox" checked={withTranscript} onChange={(e) => setWithTranscript(e.target.checked)} className="size-3.5 accent-violet-600" /> враховувати в підсумку
+                </label>
+              </div>
+              {transcript.text && (
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-xs font-medium text-violet-700">Показати текст розмови</summary>
+                  <pre className="mt-2 max-h-64 overflow-y-auto rounded-xl bg-white p-3 font-sans text-xs leading-relaxed whitespace-pre-wrap text-ink-soft ring-1 ring-line">{transcript.text}</pre>
+                </details>
+              )}
+            </>
+          ) : transcript.status === "failed" ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <AlertTriangle className="size-4 text-coral-600" />
+              <span className="flex-1 text-coral-800">{transcript.error ?? "Не вдалося розшифрувати запис"}</span>
+              <Button type="button" size="sm" variant="outline" onClick={() => retranscribe.mutate()} loading={retranscribe.isPending}><RotateCcw /> Спробувати ще раз</Button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-violet-800">
+              {transcript.status === "recording" ? <span className="size-2 animate-pulse rounded-full bg-coral-500" /> : <Loader2 className="size-4 animate-spin" />}
+              {transcript.status === "recording" ? "Йде запис уроку — після зупинки ШІ сам складе підсумок" : "Розшифровую запис уроку…"}
+            </div>
+          )}
+        </div>
+      )}
       {aiEnabled && (
         <div onPaste={onPaste}>
           <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-2">
@@ -223,7 +282,7 @@ function Editor({ lesson, saved, roster, aiEnabled, onNotes, onSaved }: {
           <p className="mt-1.5 text-xs text-mute">Фото лише аналізує ШІ — вони ніде не зберігаються.</p>
         </div>
       )}
-      <Field label="Помилки учнів" hint={roster.length > 1 ? "хто і як помилився — з іменами" : "як учень сказав → як правильно"}>
+      <Field label="Помилки учнів" hint={useTranscript ? "ШІ знайде їх у записі — допишіть лише те, що він міг пропустити" : roster.length > 1 ? "хто і як помилився — з іменами" : "як учень сказав → як правильно"}>
         <Textarea
           rows={3}
           value={notes}
@@ -233,7 +292,7 @@ function Editor({ lesson, saved, roster, aiEnabled, onNotes, onSaved }: {
         />
       </Field>
       {aiEnabled ? (
-        <Button type="button" variant="soft" className="justify-self-start" onClick={() => generate.mutate()} loading={generate.isPending} disabled={reading || (!photos.length && notes.trim().length < 15)}>
+        <Button type="button" variant="soft" className="justify-self-start" onClick={() => generate.mutate()} loading={generate.isPending} disabled={reading || (!photos.length && !useTranscript && notes.trim().length < 15)}>
           <Sparkles /> {vocab.length || grammar.length ? "Перегенерувати з ШІ" : "Скласти підсумок з ШІ"}
         </Button>
       ) : (

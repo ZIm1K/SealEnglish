@@ -250,6 +250,8 @@ export interface AiFeatures {
   tutor: boolean;
   review: boolean;
   lesson: boolean;
+  /** lesson recording → transcript → automatic summary */
+  transcribe?: boolean;
   risk: boolean;
   parent_reports: boolean;
   tutor_messages_left: number;
