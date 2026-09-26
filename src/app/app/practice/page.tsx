@@ -40,6 +40,14 @@ const SUGGESTIONS: Record<Mode, string[]> = {
   exam: ["Give me an НМТ reading task", "Test me on tenses", "Поясни правильну відповідь", "Next question, please"],
 };
 const GENERIC_SUGGESTIONS = ["Ask me a question", "Give me a short quiz", "Як сказати це англійською?", "Explain it in Ukrainian, please"];
+/** A0–A1: short English a beginner can read, or plain Ukrainian. */
+const BEGINNER_SUGGESTIONS: Record<Mode, string[]> = {
+  lesson: ["Ask me a question, please", "New words quiz, please", "Поясни граматику українською", "Одне слово з уроку — перекладу"],
+  mistakes: ["One exercise, please", "Is this correct?", "Поясни українською", "One more, please!"],
+  free: ["I like games", "I like music", "Ask me about my day", "Як це сказати англійською?"],
+  exam: ["One easy question, please", "Next question, please", "Поясни відповідь українською", "Дай підказку"],
+};
+const GENERIC_BEGINNER = ["Ask me a question, please", "Easy quiz, please", "Як це сказати англійською?", "Поясни українською"];
 
 function PracticeInner() {
   const me = useMe();
@@ -215,6 +223,7 @@ function StudentPractice() {
 
   const chatting = sessionId && summary === undefined;
   const typing = streaming !== null;
+  const beginner = ["A0", "A1"].includes((me.level ?? "").toUpperCase().slice(0, 2));
 
   return (
     <div>
@@ -299,7 +308,7 @@ function StudentPractice() {
                 >
                   {!typing && !text && left !== 0 && (
                     <div className="-mx-2.5 mb-2 flex gap-2 overflow-x-auto px-2.5 pb-0.5 [scrollbar-width:none] sm:-mx-3 sm:px-3" aria-label="Підказки">
-                      {(mode ? SUGGESTIONS[mode] : GENERIC_SUGGESTIONS).map((s) => (
+                      {(beginner ? (mode ? BEGINNER_SUGGESTIONS[mode] : GENERIC_BEGINNER) : mode ? SUGGESTIONS[mode] : GENERIC_SUGGESTIONS).map((s) => (
                         <button
                           key={s}
                           type="button"

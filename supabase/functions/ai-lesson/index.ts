@@ -4,7 +4,7 @@
 // Photos are analysed only, never stored.
 import { admin, handle, HttpError, isStaff, json, readJson, requireUser } from "../_shared/core.ts";
 import { aiClient, aiSettings, assertGlobalBudget, MISTAKE_CATEGORIES, structuredCall, z, type Anthropic } from "../_shared/ai.ts";
-import { LESSON_SYSTEM } from "../_shared/prompts.ts";
+import { LESSON_SYSTEM, levelGuide } from "../_shared/prompts.ts";
 
 const schema = {
   type: "object",
@@ -87,15 +87,19 @@ Deno.serve(handle(async (req) => {
   if (!isStaff(profile) && lesson.teacher_id !== profile.id) throw new HttpError(403, "Це не ваш урок");
   if (lesson.kind === "trial") throw new HttpError(422, "Для пробних уроків підсумок не створюється");
 
-  const roster: { id: string; full_name: string }[] = [];
+  const roster: { id: string; full_name: string; level: string | null }[] = [];
   if (lesson.group_id) {
-    const { data } = await admin.from("group_members").select("student:profiles!group_members_student_id_fkey(id, full_name)").eq("group_id", lesson.group_id);
+    const { data } = await admin.from("group_members").select("student:profiles!group_members_student_id_fkey(id, full_name, level)").eq("group_id", lesson.group_id);
     // deno-lint-ignore no-explicit-any
     for (const r of (data ?? []) as any[]) if (r.student) roster.push(r.student);
   } else if (lesson.student_id) {
-    const { data } = await admin.from("profiles").select("id, full_name").eq("id", lesson.student_id).maybeSingle();
+    const { data } = await admin.from("profiles").select("id, full_name, level").eq("id", lesson.student_id).maybeSingle();
     if (data) roster.push(data);
   }
+
+  // Examples must be readable by every student, so the lowest level in the group wins.
+  const CEFR = ["A0", "A1", "A2", "B1", "B2", "C1", "C2"];
+  const level = roster.map((s) => (s.level ?? "").toUpperCase().slice(0, 2)).filter((l) => CEFR.includes(l)).sort((a, b) => CEFR.indexOf(a) - CEFR.indexOf(b))[0] ?? null;
 
   const settings = await aiSettings();
   const client = await aiClient(settings, "lesson_enabled");
@@ -111,6 +115,9 @@ Deno.serve(handle(async (req) => {
         text: [
           `Lesson: ${lesson.title ?? "English lesson"}${lesson.topic ? ` · planned topic: ${lesson.topic}` : ""}`,
           `Roster: ${roster.map((s) => s.full_name).join(", ") || "—"}`,
+          "",
+          `Write the vocabulary meanings, example sentences and the recap for the weakest level in the group (${level ?? "unknown"}):`,
+          levelGuide(level),
           `Board photos attached: ${images.length}`,
           "",
           "Teacher's text (students' mistakes, optional comments):",
@@ -155,5 +162,5 @@ Deno.serve(handle(async (req) => {
   const { error } = await admin.from("lesson_summaries").upsert(row);
   if (error) throw error;
   if (!lesson.topic && data.topic) await admin.from("lessons").update({ topic: data.topic.slice(0, 200) }).eq("id", lesson.id);
-  return json({ ...row, topic: data.topic, roster });
+  return json({ ...row, topic: data.topic, roster: roster.map(({ id, full_name }) => ({ id, full_name })) });
 }));

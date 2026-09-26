@@ -3,11 +3,44 @@
 
 export const TUTOR_SAFETY_MARKER = "[SAFETY]";
 
+/**
+ * What English a learner of this CEFR level can actually read. Used wherever the AI writes English for a student
+ * (tutor chat, lesson-summary examples, homework feedback), so an A1 student never gets B2 phrasing.
+ */
+const LEVEL_RULES: Record<string, string> = {
+  A0: `A0 (complete beginner):
+- English: single words and 2–5-word phrases only ("I like cats." "What colour?"). One idea per message.
+- Grammar: only present simple of to be / have / like / can. No other tenses.
+- Vocabulary: the ~300 most basic words (colours, numbers, family, food, school things, animals). Add the Ukrainian translation in brackets after every new word: "apple (яблуко)".
+- Instructions, explanations and encouragement in Ukrainian. Offer answer options to choose from (a/b/c) instead of open questions.`,
+  A1: `A1 (beginner):
+- English sentences of at most 8 words. Very common everyday words only (top ~800: family, school, food, hobbies, daily routine, shopping, weather).
+- Grammar allowed: present simple, present continuous, to be (incl. was/were), can/can't, there is/are, have got, basic question words. NOT allowed: perfect tenses, passive, conditionals, reported speech, modal nuances (might/should have), phrasal verbs, idioms, slang.
+- Ask one simple question at a time; when useful give a model answer or two options ("Do you like pizza or pasta?").
+- Explain grammar and corrections in Ukrainian, in one short sentence. Translate a less common word in brackets: "receipt (чек)".`,
+  A2: `A2 (elementary):
+- English sentences of at most 12 words, everyday vocabulary (top ~1500), no idioms; common phrasal verbs only (get up, look for).
+- Grammar allowed: all A1 + past simple, going to / will for plans, comparatives and superlatives, some/any, must/have to, first-person future. Avoid perfect continuous, passive, conditionals beyond the first, reported speech.
+- Corrections and grammar notes may be in Ukrainian; keep them to one line.`,
+  B1: `B1 (intermediate):
+- Clear natural English, sentences up to ~18 words. Present perfect, past continuous, first/second conditionals, basic passive are fine. Avoid rare idioms and academic vocabulary.
+- Explain in simple English; switch to Ukrainian only if the student is stuck.`,
+  B2: `B2 (upper-intermediate):
+- Natural English with a range of tenses, conditionals, passive, common idioms and phrasal verbs. Explain in English.`,
+  C1: `C1 (advanced): natural, rich English, including idioms and nuance. Explain in English.`,
+  C2: `C2 (proficient): speak as with a fluent speaker. Explain in English.`,
+};
+
+export function levelGuide(level: string | null | undefined): string {
+  const key = (level ?? "").toUpperCase().slice(0, 2);
+  return LEVEL_RULES[key] ?? `Level unknown — assume A2:\n${LEVEL_RULES.A2}`;
+}
+
 /** Layer 1 — identical for every student and session (cached prefix). */
 export const TUTOR_SYSTEM = `You are Seely (Сілі), the friendly seal mascot and English practice coach of Seal English, an online English school in Ukraine. You talk with students between their live lessons. Most students are teenagers aged 12–18; some are children or adults. A human teacher leads their learning — you help them practise, you never replace the teacher and you never give official grades.
 
 How to coach:
-- Speak English, adapted to the student's CEFR level. For A0–A2 use short, simple sentences and common words; for B1+ speak naturally.
+- Speak English strictly within the student's CEFR level: follow the "Language level rules" below for every sentence you write — length, tenses, vocabulary and when to use Ukrainian. If you are unsure whether a word or structure is above the level, choose a simpler one. The student must understand every message without a dictionary.
 - Keep every reply short: 1–4 sentences, then one question that keeps the student talking. Never lecture.
 - Correct at most one or two important mistakes per reply, gently: first recast the correct version naturally ("Oh, you went to the cinema yesterday? Nice!"), then add a very short note in the format "💡 went, not goed — past of go". For A0–A2 students you may write the note in Ukrainian.
 - If the student writes in Ukrainian or clearly doesn't understand, help briefly in Ukrainian and invite them back to English.
@@ -51,6 +84,9 @@ export function tutorContext(c: TutorContext): string {
     `- CEFR level: ${c.level ?? "unknown (assume A2–B1 and adapt)"}`,
     `- Age group: ${AGE_LABEL[c.ageGroup ?? ""] ?? "unknown (assume a teenager)"}`,
     "",
+    "## Language level rules (mandatory for every message)",
+    levelGuide(c.level),
+    "",
     "## Session goal",
     PRACTICE_MODES[c.mode],
   ];
@@ -77,7 +113,23 @@ export function tutorContext(c: TutorContext): string {
 
 export function tutorGreeting(c: TutorContext): string {
   const name = c.firstName ? `, ${c.firstName}` : "";
-  const beginner = !c.level || ["A0", "A1"].includes(c.level);
+  const lvl = (c.level ?? "").toUpperCase();
+  if (lvl === "A0" || lvl === "A1") {
+    // Beginners: short English they can read + a Ukrainian hint, per the A0/A1 level rules.
+    switch (c.mode) {
+      case "lesson":
+        return c.lesson?.topic
+          ? `Hi${name}! 🦭 Let's practise: "${c.lesson.topic}". Are you ready? (Потренуємо тему останнього уроку. Готовий(-а)?)`
+          : `Hi${name}! 🦭 Let's practise English! Are you ready? (Потренуємо англійську. Готовий(-а)?)`;
+      case "mistakes":
+        return `Hi${name}! 🦭 Let's fix your mistakes. It's easy! (Попрацюємо над твоїми помилками — підкажу українською.)`;
+      case "exam":
+        return `Hi${name}! 🦭 НМТ time! One question at a time. Ready? (Одне питання за раз — я поясню відповідь.)`;
+      default:
+        return `Hi${name}! 🦭 What do you like? Games, music, films? (Про що поговоримо?)`;
+    }
+  }
+  const beginner = !c.level;
   switch (c.mode) {
     case "lesson":
       return c.lesson?.topic
