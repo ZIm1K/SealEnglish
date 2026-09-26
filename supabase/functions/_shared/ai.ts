@@ -63,6 +63,11 @@ export async function aiSettings(): Promise<AiSettings> {
   return { ...AI_DEFAULTS, ...raw, pricing: { ...AI_DEFAULTS.pricing, ...(raw.pricing ?? {}) } };
 }
 
+/** Extended-effort control is only accepted by full-size models; fast/cheap models (Haiku and others) reject the parameter. */
+export function supportsEffort(model: string): boolean {
+  return /sonnet|opus/.test(model);
+}
+
 let cached: { key: string; client: Anthropic } | null = null;
 
 /** Throws 409 when the school hasn't configured AI (key in Vault + master switch). */
@@ -160,7 +165,6 @@ export async function structuredCall<T>(opts: {
   userId: string | null;
   refId?: string | null;
 }): Promise<{ data: T; cost: number }> {
-  const isHaiku = opts.model.includes("haiku");
   const message = await opts.client.messages.create({
     model: opts.model,
     max_tokens: opts.maxTokens ?? 4000,
@@ -168,7 +172,7 @@ export async function structuredCall<T>(opts: {
     messages: [{ role: "user", content: opts.content }],
     output_config: {
       format: { type: "json_schema", schema: opts.schema },
-      ...(isHaiku ? {} : { effort: opts.effort ?? "medium" }),
+      ...(supportsEffort(opts.model) ? { effort: opts.effort ?? "medium" } : {}),
     },
   });
   const cost = await logUsage(opts.settings, {
