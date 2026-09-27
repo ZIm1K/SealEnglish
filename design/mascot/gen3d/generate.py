@@ -88,10 +88,13 @@ for pose, emos in {"wave": ["joy", "surprised", "love", "wink"], "read": ["joy",
                    "stand": ["joy", "surprised", "sad", "neutral", "wink"]}.items():
     for e in emos:
         JOBS[f"{pose}-{e}"] = (f"{pose}-happy", emotion_edit(e), "3:4")
-for src in ["wave-happy", "read-happy", "stand-happy", "read-neutral"]:
+# blinks only for open-eyed frames the site actually holds on screen
+for src in ["wave-happy", "wave-surprised", "read-happy", "read-neutral",
+            "stand-happy", "stand-neutral", "stand-sad", "stand-surprised"]:
     JOBS[f"{src}-blink"] = (src, BLINK, "3:4")
-JOBS["wave-happy-b"] = ("wave-happy", WAVE_B, "3:4")
-JOBS["wave-joy-b"] = ("wave-joy", WAVE_B, "3:4")
+# second wave frame for every waving emotion, edited from the same face so the flap doesn't flicker it
+for src in ["wave-happy", "wave-joy", "wave-surprised", "wave-love", "wave-wink"]:
+    JOBS[f"{src}-b"] = (src, WAVE_B, "3:4")
 JOBS["ice"] = (None, ICE, "16:9")
 
 
@@ -136,7 +139,8 @@ def main() -> None:
     ap.add_argument("--size", default="2K")
     args = ap.parse_args()
 
-    key = os.environ.get("GEMINI_API_KEY")
+    # values pasted into env settings often carry stray whitespace or quotes
+    key = os.environ.get("GEMINI_API_KEY", "").strip().strip("\"'").strip()
     if not key:
         sys.exit("GEMINI_API_KEY is not set")
     RAW.mkdir(exist_ok=True)

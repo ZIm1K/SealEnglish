@@ -7,11 +7,17 @@ Cuts the green background out of the raw Gemini renders and puts every frame on 
 - edited frames are aligned to their source frame (phase correlation on the silhouette), which
   removes the few-pixel drift image edits introduce, so cross-fades don't wobble.
 
+- all seal frames are then cropped to their common bounding box and saved at two sizes
+  (<name>.webp and a half-size <name>.sm.webp for small placements);
+- the list of frames and the canvas geometry go to src/components/mascot/seal3d-frames.ts, which the
+  Seal3D component reads (an empty list there makes the site fall back to the 2D mascot).
+
 Usage:  python design/mascot/gen3d/key.py
-Outputs: public/mascot3d/<name>.webp, design/mascot/gen3d/preview.jpg
+Outputs: public/mascot3d/*.webp, src/components/mascot/seal3d-frames.ts, design/mascot/gen3d/preview.jpg
 """
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import cv2
@@ -22,7 +28,9 @@ from generate import JOBS
 
 HERE = Path(__file__).resolve().parent
 RAW = HERE / "raw"
-OUT = HERE.parents[2] / "public" / "mascot3d"
+ROOT = HERE.parents[2]
+OUT = ROOT / "public" / "mascot3d"
+MANIFEST = ROOT / "src" / "components" / "mascot" / "seal3d-frames.ts"
 
 W, H = 900, 1200          # 3:4 canvas for the seal frames
 BODY_H = 1000             # feet → head top
@@ -64,10 +72,28 @@ def metrics(rgba: np.ndarray) -> tuple[float, float, float]:
     return float(bottom), float(top), float(cx)
 
 
+def premul(rgba: np.ndarray) -> np.ndarray:
+    f = rgba.astype(np.float32)
+    f[..., :3] *= f[..., 3:] / 255
+    return f
+
+
+def unpremul(f: np.ndarray) -> np.ndarray:
+    a = f[..., 3:]
+    f[..., :3] = np.where(a > 0.5, f[..., :3] * 255 / np.maximum(a, 1e-3), 0)
+    return f.clip(0, 255).round().astype(np.uint8)
+
+
 def place(rgba: np.ndarray, scale: float, dx: float, dy: float, size: tuple[int, int]) -> np.ndarray:
+    # resample premultiplied, or the keyed-out (black) background bleeds into the edges as a dark halo
     M = np.float32([[scale, 0, dx], [0, scale, dy]])
-    return cv2.warpAffine(rgba, M, size, flags=cv2.INTER_AREA if scale < 1 else cv2.INTER_CUBIC,
-                          borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0, 0))
+    f = cv2.warpAffine(premul(rgba), M, size, flags=cv2.INTER_AREA if scale < 1 else cv2.INTER_CUBIC,
+                       borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0, 0))
+    return unpremul(np.clip(f, 0, None))
+
+
+def resize(rgba: np.ndarray, size: tuple[int, int]) -> np.ndarray:
+    return unpremul(cv2.resize(premul(rgba), size, interpolation=cv2.INTER_AREA))
 
 
 def align(frame: np.ndarray, ref: np.ndarray) -> np.ndarray:
@@ -79,20 +105,33 @@ def align(frame: np.ndarray, ref: np.ndarray) -> np.ndarray:
     return place(frame, 1, -sx, -sy, (frame.shape[1], frame.shape[0]))
 
 
+def depth(name: str) -> int:
+    src = JOBS[name][0]
+    return 0 if src is None else 1 + depth(src)
+
+
+def save(rgba: np.ndarray, name: str) -> bytes:
+    h, w = rgba.shape[:2]
+    data = b""
+    for suffix, im in (("", rgba), (".sm", resize(rgba, (round(w / 2), round(h / 2))))):
+        path = OUT / f"{name}{suffix}.webp"
+        Image.fromarray(im, "RGBA").save(path, quality=88, method=6)
+        data += path.read_bytes()
+    return data
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     done: dict[str, np.ndarray] = {}
-    order = [n for n in JOBS if (RAW / f"{n}.png").exists()]
     # sources before their edits
-    order.sort(key=lambda n: 0 if JOBS[n][0] is None else (1 if JOBS[JOBS[n][0]][0] is None else 2))
+    order = sorted((n for n in JOBS if (RAW / f"{n}.png").exists()), key=depth)
     for name in order:
         src = JOBS[name][0]
         rgba = key(Image.open(RAW / f"{name}.png"))
         if name == "ice":
             ys, xs = np.nonzero(rgba[..., 3] > 128)
             crop = rgba[ys.min(): ys.max() + 1, xs.min(): xs.max() + 1]
-            s = ICE_W / crop.shape[1]
-            placed = cv2.resize(crop, (ICE_W, round(crop.shape[0] * s)), interpolation=cv2.INTER_AREA)
+            placed = resize(crop, (ICE_W, round(crop.shape[0] * ICE_W / crop.shape[1])))
         elif src is None:
             bottom, top, cx = metrics(rgba)
             s = BODY_H / (bottom - top)
@@ -105,8 +144,55 @@ def main() -> None:
             placed = place(rgba, s, scx - cx * s, sb - bottom * s, (W, H))
             placed = align(placed, done[src])
         done[name] = placed
-        Image.fromarray(placed, "RGBA").save(OUT / f"{name}.webp", quality=88, method=6)
         print(f"{name}: ok")
+
+    seals = [n for n in done if n != "ice"]
+    if not seals:
+        return
+    # one crop for every frame, so they stay interchangeable (and layers line up in the browser)
+    solid = np.zeros((H, W), bool)
+    for n in seals:
+        solid |= done[n][..., 3] > 8
+    ys, xs = np.nonzero(solid)
+    pad = 16
+    # symmetric around the body, so layouts that centre the mascot centre the seal, not the flipper
+    half = max(W // 2 - (xs.min() - pad), xs.max() + 1 + pad - W // 2)
+    x0, x1 = max(0, W // 2 - half), min(W, W // 2 + half)
+    y0, y1 = max(0, ys.min() - pad), min(H, ys.max() + 1 + pad)
+    for n in seals:
+        a = done[n][..., 3] > 8
+        if a[:2].any() or a[:, :2].any() or a[:, -2:].any():
+            print(f"WARNING: {n} touches the canvas edge — something (a raised flipper?) is cut off")
+
+    digest = hashlib.sha1()
+    for n in seals:
+        digest.update(save(done[n][y0:y1, x0:x1], n))
+    if "ice" in done:
+        digest.update(save(done["ice"], "ice"))
+
+    # feet width on the base poses, for the contact shadow
+    feet = []
+    for n in seals:
+        if JOBS[n][0] is None:
+            row = done[n][BASELINE - 30, :, 3] > 128
+            if row.any():
+                cols = np.nonzero(row)[0]
+                feet.append(cols.max() - cols.min())
+    ice = done.get("ice")
+    MANIFEST.write_text(
+        "// Generated by design/mascot/gen3d/key.py — do not edit by hand.\n"
+        "// Frames live in public/mascot3d/<name>.webp (+ <name>.sm.webp at half size).\n"
+        "// An empty SEAL3D_FRAMES list makes Seal3D fall back to the 2D SVG mascot.\n\n"
+        f"export const SEAL3D_FRAMES: readonly string[] = {sorted(seals)!r};\n\n".replace("'", '"')
+        + "/** Frame size (px, full resolution) and landmarks inside it. */\n"
+        f"export const SEAL3D_CANVAS = {{ w: {x1 - x0}, h: {y1 - y0}, baseline: {BASELINE - y0}, "
+        f"headTop: {BASELINE - BODY_H - y0}, cx: {W // 2 - x0}, bodyH: {BODY_H}, "
+        f"feetW: {int(np.median(feet)) if feet else 400} }};\n\n"
+        + (f"export const SEAL3D_ICE: {{ w: number; h: number }} | null = {{ w: {ice.shape[1]}, h: {ice.shape[0]} }};\n\n"
+           if ice is not None else "export const SEAL3D_ICE: { w: number; h: number } | null = null;\n\n")
+        + f'/** Cache buster: changes whenever a frame changes. */\nexport const SEAL3D_VERSION = "{digest.hexdigest()[:8]}";\n'
+    )
+    print(f"crop {x1 - x0}x{y1 - y0}, manifest → {MANIFEST.name}")
     preview(done)
 
 
