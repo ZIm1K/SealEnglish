@@ -4,7 +4,7 @@ import { MessagesSquare, Target, Sparkles, Gamepad2, LineChart, Headphones, Bell
 import { motion } from "motion/react";
 import { Reveal, SectionHead } from "./Reveal";
 import { STEPS } from "@/content/site";
-import { Seal } from "@/components/mascot/Seal";
+import { Seal3D } from "@/components/mascot/Seal3D";
 
 const FEATURES = [
   {
@@ -78,7 +78,7 @@ export function Method() {
           <Reveal className="relative mx-auto w-full max-w-sm">
             <div aria-hidden className="absolute inset-6 rounded-full bg-gradient-to-br from-seal-200 to-coral-100 blur-2xl" />
             <div className="relative">
-              <Seal emotion="neutral" reading track />
+              <Seal3D emotion="neutral" reading track hop />
             </div>
           </Reveal>
           <div>

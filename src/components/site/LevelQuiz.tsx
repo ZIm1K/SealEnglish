@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowLeft, ArrowRight, PartyPopper, RotateCcw, Share2 } from "lucide-react";
-import { Seal, type SealEmotion } from "@/components/mascot/Seal";
+import type { SealEmotion } from "@/components/mascot/Seal";
+import { Seal3D } from "@/components/mascot/Seal3D";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/form";
 import { callFunction } from "@/lib/supabase";
@@ -109,7 +110,7 @@ export function LevelQuiz() {
         </AnimatePresence>
       </div>
       <div className="mx-auto hidden w-56 lg:block">
-        <Seal emotion={emotion} crop="bust" wave={stage !== "quiz"} idle />
+        <Seal3D emotion={emotion} crop="bust" wave={stage !== "quiz"} idle />
       </div>
     </div>
   );

@@ -32,15 +32,70 @@ export function lessonState(l: Lesson) {
   return "upcoming" as const;
 }
 
+// Shown once before a Meet link opens, so students (and, for minors, their parents) are told up
+// front that the lesson may be recorded for an AI summary — the teacher's own consent checkbox in
+// RecordLessonButton confirms the same thing per session, but only they see it, not the family.
+// "Don't show again" is a per-browser localStorage flag: it's a courtesy against nagging returning
+// users, not the consent record itself, so it's fine if a new device shows the notice once more.
+const JOIN_NOTICE_KEY = "seal:join-notice-dismissed";
+
+function joinNoticeDismissed() {
+  try {
+    return localStorage.getItem(JOIN_NOTICE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function dismissJoinNotice() {
+  try {
+    localStorage.setItem(JOIN_NOTICE_KEY, "1");
+  } catch {
+    // private browsing or storage disabled — the notice just reappears next time
+  }
+}
+
+function JoinNoticeDialog({ open, onClose, onConfirm }: { open: boolean; onClose: () => void; onConfirm: () => void }) {
+  const [remember, setRemember] = useState(false);
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent title="Перш ніж приєднатися" size="sm">
+        <p className="text-sm text-ink-soft">
+          Викладач може записати цей урок, щоб ШІ підготував підсумок: лексику, граматику й типові помилки.
+          Запис вмикають лише за згодою учня (для неповнолітніх — батьків). Аудіо видаляється одразу після
+          розшифровки, текст підсумку бачать тільки викладач і адміністрація.
+        </p>
+        <Checkbox className="mt-4" checked={remember} onChange={(e) => setRemember(e.target.checked)} label="Більше не показувати" />
+        <div className="mt-5 flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>Скасувати</Button>
+          <Button onClick={() => { if (remember) dismissJoinNotice(); onConfirm(); }}><Video /> Приєднатися</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function JoinButton({ lesson, size = "sm", className, compact }: { lesson: Lesson; size?: "sm" | "md" | "lg"; className?: string; /** icon-only on phones */ compact?: boolean }) {
   const st = lessonState(lesson);
+  const [asking, setAsking] = useState(false);
   if (!lesson.meet_url || st === "cancelled" || st === "past") return null;
+  const go = () => window.open(lesson.meet_url!, "_blank", "noopener,noreferrer");
   return (
-    <Button asChild size={size} variant={st === "live" ? "primary" : "soft"} className={cn(st === "live" && "animate-pulse", className)}>
-      <a href={lesson.meet_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
+    <>
+      <Button
+        size={size}
+        variant={st === "live" ? "primary" : "soft"}
+        className={cn(st === "live" && "animate-pulse", className)}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (joinNoticeDismissed()) go();
+          else setAsking(true);
+        }}
+      >
         <Video /> <span className={cn(compact && "sr-only sm:not-sr-only")}>{st === "live" ? "Приєднатися" : "Meet"}</span>
-      </a>
-    </Button>
+      </Button>
+      <JoinNoticeDialog open={asking} onClose={() => setAsking(false)} onConfirm={() => { setAsking(false); go(); }} />
+    </>
   );
 }
 

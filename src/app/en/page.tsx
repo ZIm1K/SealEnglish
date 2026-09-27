@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight, Check, Mail } from "lucide-react";
 import { Logo } from "@/components/site/Logo";
-import { Seal } from "@/components/mascot/Seal";
+import { Seal3D } from "@/components/mascot/Seal3D";
 import { PLANS, SITE } from "@/content/site";
 
 const TITLE = "Seal English — online English school for teens, kids and adults";
@@ -101,7 +101,7 @@ export default function EnglishHome() {
             <p className="mt-4 text-sm text-seal-100/60">The booking form is in Ukrainian; feel free to email us in English instead.</p>
           </div>
           <div className="mx-auto w-56 sm:w-72 lg:w-full lg:max-w-sm">
-            <Seal emotion="happy" wave crop="bust" title="Seally, the Seal English mascot" />
+            <Seal3D emotion="happy" wave crop="bust" title="Seally, the Seal English mascot" />
           </div>
         </div>
       </header>

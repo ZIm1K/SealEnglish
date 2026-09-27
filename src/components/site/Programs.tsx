@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { Check, ArrowUpRight } from "lucide-react";
-import { Seal, type SealEmotion } from "@/components/mascot/Seal";
+import type { SealEmotion } from "@/components/mascot/Seal";
+import { Seal3D } from "@/components/mascot/Seal3D";
 import { PROGRAMS } from "@/content/site";
 import { Reveal, SectionHead } from "./Reveal";
 import { cn } from "@/lib/utils";
@@ -54,7 +55,7 @@ function ProgramCard({ p, big, delay = 0 }: { p: (typeof PROGRAMS)[number]; big?
             <h3 className={cn("mt-4 font-display font-bold", big ? "text-5xl sm:text-6xl" : "text-3xl text-ocean-900")}>{p.title}</h3>
           </div>
           <div className={cn("shrink-0 transition-transform duration-500 group-hover:-rotate-3 group-hover:scale-105", big ? "w-36 sm:w-44" : "w-24")}>
-            <Seal crop="head" emotion={hover ? "joy" : MOOD[p.id]} idle={hover} />
+            <Seal3D crop="head" emotion={hover ? "joy" : MOOD[p.id]} idle={hover} />
           </div>
         </div>
         <p className={cn("relative mt-5 leading-relaxed", big ? "max-w-md text-lg text-seal-100/85" : "text-ink-soft")}>{p.tagline}</p>
