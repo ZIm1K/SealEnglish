@@ -8,13 +8,16 @@ import { Seal3D } from "@/components/mascot/Seal3D";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/form";
 import { callFunction } from "@/lib/supabase";
+import { track } from "@/lib/analytics";
+import { CONTACT_ERROR, formatContact, parseContact } from "@/lib/contact";
+import { BotTrialButton } from "./BotTrialButton";
 import { LEVEL_INFO, QUIZ, quizLevel } from "@/content/quiz";
 import { cn } from "@/lib/utils";
 
-type Stage = "intro" | "quiz" | "result";
+type Stage = "quiz" | "result";
 
 export function LevelQuiz() {
-  const [stage, setStage] = useState<Stage>("intro");
+  const [stage, setStage] = useState<Stage>("quiz");
   const [i, setI] = useState(0);
   const [answers, setAnswers] = useState<(number | undefined)[]>([]);
   const [emotion, setEmotion] = useState<SealEmotion>("happy");
@@ -24,10 +27,15 @@ export function LevelQuiz() {
 
   const choose = (opt: number) => {
     const next = [...answers];
+    const firstTime = next[i] === undefined;
     next[i] = opt;
     setAnswers(next);
+    if (firstTime && i === 0) track("quiz_start");
+    if (firstTime && (i + 1) % 5 === 0 && i < QUIZ.length - 1) track("quiz_progress", { answered: i + 1 });
     if (i < QUIZ.length - 1) window.setTimeout(() => setI(i + 1), 180);
     else {
+      const final = QUIZ.reduce((sum, q, k) => sum + (next[k] === q.answer ? 1 : 0), 0);
+      track("quiz_complete", { level: quizLevel(final), score: final });
       setStage("result");
       setEmotion("joy");
     }
@@ -44,21 +52,6 @@ export function LevelQuiz() {
     <div className="grid gap-8 lg:grid-cols-[1fr_16rem] lg:items-start">
       <div className="rounded-4xl border border-line bg-white p-6 shadow-soft sm:p-10">
         <AnimatePresence mode="wait">
-          {stage === "intro" && (
-            <motion.div key="intro" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}>
-              <h2 className="font-display text-2xl font-bold text-ocean-900">Як це працює</h2>
-              <ul className="mt-4 grid gap-2 text-ink-soft">
-                <li>• {QUIZ.length} питань з граматики — від простих до складних (A1 → C1)</li>
-                <li>• 5–7 хвилин, без реєстрації</li>
-                <li>• Результат одразу: рівень за шкалою CEFR і що це означає для НМТ</li>
-              </ul>
-              <p className="mt-4 text-sm text-mute">Не знаєте відповіді — обирайте навмання, не підглядайте: так результат буде чесним.</p>
-              <Button size="lg" className="mt-7" onClick={() => setStage("quiz")}>
-                Почати тест <ArrowRight />
-              </Button>
-            </motion.div>
-          )}
-
           {stage === "quiz" && (
             <motion.div key="quiz" exit={{ opacity: 0 }}>
               <div className="flex items-center justify-between text-sm font-semibold text-mute">
@@ -74,7 +67,8 @@ export function LevelQuiz() {
               </div>
               {/* Keyed by question: remounts with an enter animation, never waits for an exit one. */}
               <motion.div key={i} initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.18 }}>
-              <p lang="en" className="mt-8 font-display text-2xl leading-snug font-semibold text-ocean-900 sm:text-3xl">{QUIZ[i].q}</p>
+              {i === 0 && <p className="mt-4 text-sm text-mute">Оберіть варіант, який пасує. Не знаєте — обирайте навмання, так результат буде чесним.</p>}
+              <p lang="en" className="mt-6 font-display text-2xl leading-snug font-semibold text-ocean-900 sm:text-3xl">{QUIZ[i].q}</p>
               <div className="mt-6 grid gap-3 sm:grid-cols-2">
                 {QUIZ[i].options.map((o, k) => (
                   <button
@@ -105,12 +99,12 @@ export function LevelQuiz() {
               <p className="mt-1 text-sm text-mute">Правильних відповідей: {score} з {QUIZ.length}</p>
               <p className="mt-5 leading-relaxed text-ink-soft">{LEVEL_INFO[level].text}</p>
               <p className="mt-3 rounded-2xl bg-seal-50 p-4 leading-relaxed text-ink-soft"><b className="text-ocean-900">НМТ:</b> {LEVEL_INFO[level].nmt}</p>
-              <p className="mt-3 text-xs text-mute">Тест перевіряє граматику. Розмовну мову, аудіювання й лексику точніше оцінить викладач на пробному уроці.</p>
-              <div className="mt-5 flex flex-wrap gap-2">
-                <Button variant="outline" size="sm" onClick={restart}><RotateCcw /> Пройти ще раз</Button>
+              <TrialLead level={level} score={score} onDone={() => setEmotion("love")} />
+              <p className="mt-6 text-xs text-mute">Тест перевіряє граматику. Розмовну мову, аудіювання й лексику точніше оцінить викладач на пробному уроці.</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button variant="ghost" size="sm" onClick={restart}><RotateCcw /> Пройти ще раз</Button>
                 <ShareButton level={level} />
               </div>
-              <TrialLead level={level} score={score} onDone={() => setEmotion("love")} />
             </motion.div>
           )}
         </AnimatePresence>
@@ -127,6 +121,7 @@ function ShareButton({ level }: { level: string }) {
   const share = async () => {
     const url = `${window.location.origin}/test/`;
     const text = `Мій рівень англійської — ${level}. А який у тебе? Безкоштовний тест за 5 хвилин:`;
+    track("share", { method: "share" in navigator ? "native" : "clipboard", content_type: "level_quiz" });
     try {
       if (navigator.share) await navigator.share({ text, url });
       else {
@@ -138,7 +133,7 @@ function ShareButton({ level }: { level: string }) {
     }
   };
   return (
-    <Button variant="outline" size="sm" onClick={share}>
+    <Button variant="ghost" size="sm" onClick={share}>
       <Share2 /> {copied ? "Посилання скопійовано" : "Поділитися з другом"}
     </Button>
   );
@@ -147,26 +142,34 @@ function ShareButton({ level }: { level: string }) {
 function TrialLead({ level, score, onDone }: { level: string; score: number; onDone: () => void }) {
   const [shownAt] = useState(() => Date.now());
   const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [consent, setConsent] = useState(false);
+  const [contact, setContact] = useState("");
   const [website, setWebsite] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [done, setDone] = useState(false);
+  const [started, setStarted] = useState(false);
+
+  const onFocus = () => {
+    if (started) return;
+    setStarted(true);
+    track("lead_form_start", { form: "level_quiz" });
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (name.trim().length < 2) return setError("Вкажіть ім'я");
-    const digits = phone.replace(/\D/g, "").length;
-    if (digits < 10 || digits > 15) return setError("Перевірте номер телефону");
-    if (!consent) return setError("Потрібна ваша згода на обробку даних");
+    const parsed = parseContact(contact);
+    const problem = name.trim().length < 2 ? "Вкажіть ім'я" : !parsed ? CONTACT_ERROR : null;
+    if (problem || !parsed) {
+      track("lead_form_error", { form: "level_quiz", reason: problem ?? "" });
+      return setError(problem);
+    }
     setSending(true);
     try {
       const utm = { ...Object.fromEntries(new URLSearchParams(window.location.search)), ref: "level-quiz" };
       await callFunction("lead", {
         name,
-        phone,
+        ...parsed,
         age_group: "teens",
         level: `${level} · тест на сайті ${score}/${QUIZ.length}`,
         comment: "Заявка після безкоштовного тесту рівня на сайті",
@@ -174,10 +177,13 @@ function TrialLead({ level, score, onDone }: { level: string; score: number; onD
         started_at: shownAt,
         utm,
       });
+      track("generate_lead", { form: "level_quiz", contact: "phone" in parsed ? "phone" : "telegram", level });
       setDone(true);
       onDone();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Не вдалося надіслати заявку");
+      const message = err instanceof Error ? err.message : "Не вдалося надіслати заявку";
+      track("lead_form_error", { form: "level_quiz", reason: message });
+      setError(message);
     } finally {
       setSending(false);
     }
@@ -188,7 +194,7 @@ function TrialLead({ level, score, onDone }: { level: string; score: number; onD
       <div className="mt-8 rounded-3xl bg-gradient-to-br from-seal-100 to-white p-6">
         <PartyPopper className="size-8 text-coral-500" />
         <h3 className="mt-3 font-display text-xl font-bold text-ocean-900">Дякуємо! Заявку прийнято</h3>
-        <p className="mt-1 text-ink-soft">Ми зв&apos;яжемося, щоб узгодити час пробного уроку. Результат тесту вже бачить викладач.</p>
+        <p className="mt-1 text-ink-soft">Напишемо або зателефонуємо протягом дня, щоб узгодити час пробного уроку. Результат тесту вже бачить викладач.</p>
       </div>
     );
   }
@@ -196,28 +202,28 @@ function TrialLead({ level, score, onDone }: { level: string; score: number; onD
   return (
     <form onSubmit={submit} noValidate className="mt-8 grid gap-4 rounded-3xl border border-seal-200 bg-seal-50/60 p-6">
       <div>
-        <h3 className="font-display text-xl font-bold text-ocean-900">Безкоштовний пробний урок під ваш рівень</h3>
-        <p className="mt-1 text-sm text-ink-soft">Урок у Google Meet: викладач уточнить рівень у розмові й підкаже, як рухатися далі. Без зобов&apos;язань.</p>
+        <h3 className="font-display text-xl font-bold text-ocean-900">Безкоштовний пробний урок під рівень {level}</h3>
+        <p className="mt-1 text-sm text-ink-soft">Живе заняття в Google Meet: викладач перевірить рівень у розмові й покаже, що підтягнути до НМТ. Без зобов&apos;язань.</p>
       </div>
       <input type="text" tabIndex={-1} autoComplete="off" className="hidden" aria-hidden value={website} onChange={(e) => setWebsite(e.target.value)} />
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Ім'я учня" htmlFor="q-name">
-          <Input id="q-name" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} />
+        <Field label="Ім'я" htmlFor="q-name">
+          <Input id="q-name" autoComplete="given-name" value={name} onFocus={onFocus} onChange={(e) => setName(e.target.value)} />
         </Field>
-        <Field label="Телефон" htmlFor="q-phone">
-          <Input id="q-phone" type="tel" inputMode="tel" autoComplete="tel" placeholder="+380 67 000 00 00" value={phone} onChange={(e) => setPhone(e.target.value)} />
+        <Field label="Телефон або Telegram" htmlFor="q-contact">
+          <Input id="q-contact" type="text" autoComplete="tel" placeholder="+380 67 000 00 00 або @нік" value={contact} onFocus={onFocus} onChange={(e) => setContact(formatContact(e.target.value))} />
         </Field>
       </div>
-      <label className="flex items-start gap-3 text-sm text-ink-soft">
-        <input type="checkbox" className="mt-0.5 size-4.5 accent-seal-600" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
-        <span>
-          Погоджуюсь з <a href="/privacy/" className="font-semibold text-seal-700 underline-offset-2 hover:underline">політикою конфіденційності</a>. Якщо учню менше 18 — заявку залишає один із батьків.
-        </span>
-      </label>
       {error && <p role="alert" className="rounded-2xl bg-coral-50 px-4 py-3 text-sm font-medium text-coral-700">{error}</p>}
-      <Button type="submit" size="lg" loading={sending} className="w-full sm:w-auto sm:justify-self-start">
-        Записатися на пробний <ArrowRight />
-      </Button>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <Button type="submit" size="lg" loading={sending} className="w-full sm:w-auto">
+          Записатися безкоштовно <ArrowRight />
+        </Button>
+        <BotTrialButton placement="level_quiz" className="w-full sm:w-auto" />
+      </div>
+      <p className="text-xs text-mute">
+        Надсилаючи заявку, ви погоджуєтесь з <a href="/privacy/" className="font-semibold text-seal-700 underline-offset-2 hover:underline">політикою конфіденційності</a>. Можна вказати номер когось із батьків.
+      </p>
     </form>
   );
 }

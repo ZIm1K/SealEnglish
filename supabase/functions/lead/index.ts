@@ -45,9 +45,13 @@ Deno.serve(handle(async (req) => {
   const name = clean(body.name, 80);
   const phoneRaw = clean(body.phone, 32);
   const phone = phoneRaw ? phoneRaw.replace(/[^\d+]/g, "") : null;
+  // Phone OR Telegram nick: teens often won't give a phone number.
+  const telegram = clean(body.telegram, 64)?.replace(/^@/, "").replace(/^(https?:\/\/)?t\.me\//, "") ?? null;
   if (!name || name.length < 2) throw new HttpError(422, "Вкажіть, будь ласка, ім'я");
+  if (!phone && !telegram) throw new HttpError(422, "Вкажіть номер телефону або Telegram-нік");
   const digits = phone?.replace(/\D/g, "") ?? "";
-  if (!phone || digits.length < 9 || digits.length > 15) throw new HttpError(422, "Перевірте номер телефону");
+  if (phone && (digits.length < 9 || digits.length > 15)) throw new HttpError(422, "Перевірте номер телефону");
+  if (telegram && !/^[a-zA-Z][a-zA-Z0-9_]{4,31}$/.test(telegram)) throw new HttpError(422, "Перевірте Telegram-нік");
 
   const email = clean(body.email, 120);
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new HttpError(422, "Перевірте email");
@@ -61,11 +65,11 @@ Deno.serve(handle(async (req) => {
     throw new HttpError(429, "Забагато заявок. Спробуйте трохи пізніше або напишіть нам у Telegram.");
   }
 
-  // Double-submit protection: same phone within 15 minutes → reuse.
+  // Double-submit protection: same phone / nick within 15 minutes → reuse.
   const { data: recent } = await admin
     .from("leads")
     .select("no, level_test_token")
-    .eq("phone", phone)
+    .eq(phone ? "phone" : "telegram_username", phone ?? telegram!)
     .gte("created_at", new Date(Date.now() - 15 * 60_000).toISOString())
     .limit(1)
     .maybeSingle();
@@ -85,7 +89,7 @@ Deno.serve(handle(async (req) => {
       name,
       phone,
       email,
-      telegram_username: clean(body.telegram, 64)?.replace(/^@/, "").replace(/^https?:\/\/t\.me\//, "") ?? null,
+      telegram_username: telegram,
       age_group: ageGroup,
       student_age: studentAge,
       level: clean(body.level, 40),
