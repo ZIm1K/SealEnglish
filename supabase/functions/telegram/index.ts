@@ -232,19 +232,23 @@ const TIME_SLOTS: Record<string, string> = {
   any: "Будь-коли",
 };
 
-async function startTrial(chatId: number) {
-  await setSession(chatId, "trial:name", {});
+/** Button that skips the phone step: the manager writes to the @username instead. */
+const NO_PHONE = "💬 Без телефону, пишіть у Telegram";
+
+/** `campaign` comes from the deep link (/start trial_<utm_campaign>) so ad leads are attributed like site leads. */
+async function startTrial(chatId: number, campaign = "") {
+  await setSession(chatId, "trial:name", campaign ? { campaign } : {});
   await sendMessage(chatId, `🎁 <b>Запис на безкоштовний пробний урок</b>\n\nПробний урок проходить у Google Meet у міні-групі до 4 учасників (60 хв) або індивідуально (30 хв): знайомимось, визначаємо рівень і складаємо план навчання.\n\nЯк звати учня? ✍️`, {
     reply_markup: { keyboard: [[{ text: BTN.cancel }]], resize_keyboard: true, one_time_keyboard: false },
   });
 }
 
-async function askPhone(chatId: number) {
+async function askPhone(chatId: number, hasUsername: boolean) {
   const site = await siteUrl();
   const privacy = isPublicHttps(site) ? `<a href="${site}/privacy/">політикою конфіденційності</a>` : "політикою конфіденційності";
   await sendMessage(chatId, `📱 Залиште номер телефону, щоб менеджер міг зв'язатися. Можна натиснути кнопку нижче або ввести номер вручну.\n\n<i>Надсилаючи номер, ви (або один із батьків, якщо учню менше 18) погоджуєтесь з ${privacy}.</i>`, {
     reply_markup: {
-      keyboard: [[{ text: "📱 Поділитися номером", request_contact: true }], [{ text: BTN.cancel }]],
+      keyboard: [[{ text: "📱 Поділитися номером", request_contact: true }], ...(hasUsername ? [[{ text: NO_PHONE }]] : []), [{ text: BTN.cancel }]],
       resize_keyboard: true,
       one_time_keyboard: true,
     },
@@ -266,10 +270,11 @@ async function finishTrial(chatId: number, from: Any, s: Session) {
     .from("leads")
     .insert({
       name: d.name,
-      phone: d.phone,
+      phone: d.phone ?? null,
       age_group: d.age_group ?? null,
       preferred_time: d.time ?? null,
       source: "telegram",
+      utm: d.campaign ? { ref: "bot", utm_campaign: d.campaign } : {},
       telegram_chat_id: chatId,
       telegram_username: from?.username ?? null,
     })
@@ -406,7 +411,7 @@ async function onMessage(msg: Any) {
     const payload = text.split(/\s+/)[1] ?? "";
     if (payload.startsWith("link_")) return linkAccount(chatId, from, payload.slice(5));
     if (payload.startsWith("parent_")) return parentInvite(chatId, payload.slice(7));
-    if (payload === "trial") return startTrial(chatId);
+    if (payload === "trial" || payload.startsWith("trial_")) return startTrial(chatId, payload.slice(6).replace(/[^A-Za-z0-9_-]/g, "").slice(0, 50));
     await clearSession(chatId);
     return greet(chatId, p, from?.first_name);
   }
@@ -432,6 +437,11 @@ async function onMessage(msg: Any) {
     });
   }
   if (s.state === "trial:phone") {
+    if (text === NO_PHONE && from?.username) {
+      await setSession(chatId, "trial:time", s.data);
+      await sendMessage(chatId, `Добре, напишемо вам сюди, @${esc(from.username)} 🙌`, { reply_markup: { remove_keyboard: true } });
+      return askTime(chatId);
+    }
     const phone = (msg.contact?.phone_number ?? text).replace(/[^\d+]/g, "");
     const digits = phone.replace(/\D/g, "").length;
     if (digits < 9 || digits > 15) return sendMessage(chatId, "Схоже, номер неповний. Спробуйте ще раз 📱");
@@ -500,7 +510,7 @@ async function onCallback(cq: Any) {
     await setSession(chatId, "trial:phone", { ...s.data, age_group: age });
     await answer(AGE_GROUP[age]);
     await tg("editMessageText", { chat_id: chatId, message_id: messageId, text: `Група: <b>${esc(AGE_GROUP[age] ?? age)}</b> ✓`, parse_mode: "HTML" });
-    return askPhone(chatId);
+    return askPhone(chatId, !!cq.from?.username);
   }
   if (data.startsWith("pc:")) {
     const ok = await parentConsent(chatId, cq.from, data.slice(3));

@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Providers } from "@/components/providers";
 import { SITE } from "@/content/site";
+import { Analytics } from "@/components/Analytics";
+import { GTM_ID } from "@/lib/analytics";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE.url),
@@ -48,7 +50,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="uk" suppressHydrationWarning>
       <body>
+        {GTM_ID && (
+          <noscript>
+            <iframe src={`https://www.googletagmanager.com/ns.html?id=${GTM_ID}`} height="0" width="0" style={{ display: "none", visibility: "hidden" }} />
+          </noscript>
+        )}
         <Providers>{children}</Providers>
+        <Analytics />
       </body>
     </html>
   );

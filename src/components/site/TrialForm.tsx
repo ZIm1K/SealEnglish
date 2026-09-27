@@ -5,30 +5,26 @@ import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowRight, Send, ShieldCheck, PartyPopper, FlaskConical } from "lucide-react";
+import { ArrowRight, ChevronDown, Send, ShieldCheck, PartyPopper, FlaskConical } from "lucide-react";
 import { Seal, type SealEmotion } from "@/components/mascot/Seal";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Segmented, Select, Textarea } from "@/components/ui/form";
 import { callFunction, supabase } from "@/lib/supabase";
+import { track } from "@/lib/analytics";
+import { CONTACT_ERROR, formatContact, parseContact } from "@/lib/contact";
+import { SITE } from "@/content/site";
+import { BotTrialButton } from "./BotTrialButton";
 import { Reveal } from "./Reveal";
 
 const schema = z.object({
   name: z.string().trim().min(2, "Вкажіть ім'я"),
-  phone: z
-    .string()
-    .trim()
-    .refine((v) => {
-      const n = v.replace(/\D/g, "").length;
-      return n >= 10 && n <= 15;
-    }, "Перевірте номер телефону"),
+  contact: z.string().trim().refine((v) => parseContact(v) !== null, CONTACT_ERROR),
   age_group: z.enum(["kids", "teens", "adults"]),
   student_age: z.string().optional(),
   preferred_time: z.string().optional(),
   goal: z.string().optional(),
   level: z.string().optional(),
-  telegram: z.string().optional(),
   comment: z.string().max(1000).optional(),
-  consent: z.boolean().refine((v) => v, "Потрібна ваша згода на обробку даних"),
   website: z.string().optional(),
 });
 type FormValues = z.infer<typeof schema>;
@@ -37,32 +33,19 @@ const GOALS = ["Розмовна англійська", "Школа / оцінк
 const TIMES = ["Ранок (9–12)", "День (12–16)", "Вечір (16–21)", "Вихідні", "Будь-коли"];
 const LEVELS = ["Не знаю", "Початківець (A0–A1)", "Базовий (A2)", "Середній (B1)", "Вище середнього (B2)", "Просунутий (C1+)"];
 
-/** Ukrainian numbers get the familiar grouping; numbers from abroad (a key segment) keep up to 15 digits (E.164). */
-function formatPhone(raw: string) {
-  let d = raw.replace(/\D/g, "");
-  if (d.startsWith("0")) d = "38" + d;
-  if (!d) return "";
-  if (d.startsWith("380")) {
-    d = d.slice(0, 12);
-    const p = [d.slice(0, 2), d.slice(2, 5), d.slice(5, 8), d.slice(8, 10), d.slice(10, 12)].filter(Boolean);
-    return "+" + p.join(" ");
-  }
-  d = d.slice(0, 15);
-  return "+" + (d.match(/.{1,3}/g) ?? []).join(" ");
-}
-
 export function TrialSection() {
   const [emotion, setEmotion] = useState<SealEmotion>("happy");
   const [look, setLook] = useState<{ x: number; y: number } | null>(null);
   const [jump, setJump] = useState<number | undefined>();
   const [done, setDone] = useState<{ no?: number; test?: string | null } | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
-  const [bot, setBot] = useState<string | null>(null);
+  const [bot, setBot] = useState<string>(SITE.telegramBot);
+  const [started, setStarted] = useState(false);
   const [startedAt] = useState(() => Date.now());
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { age_group: "teens", consent: false, phone: "", name: "" },
+    defaultValues: { age_group: "teens", contact: "", name: "" },
   });
   const { register, handleSubmit, formState, setValue, control } = form;
   const ageGroup = useWatch({ control, name: "age_group" });
@@ -78,6 +61,12 @@ export function TrialSection() {
       });
   }, []);
 
+  const onFieldFocus = () => {
+    if (started) return;
+    setStarted(true);
+    track("lead_form_start", { form: "trial_form" });
+  };
+
   const react = (e: SealEmotion, ms = 1400) => {
     setEmotion(e);
     window.setTimeout(() => setEmotion((cur) => (cur === e ? "happy" : cur)), ms);
@@ -88,12 +77,16 @@ export function TrialSection() {
     setEmotion("neutral");
     try {
       const utm = Object.fromEntries(new URLSearchParams(window.location.search));
+      const { contact, ...rest } = v;
+      const parsed = parseContact(contact)!;
       const res = await callFunction<{ ok: boolean; no?: number; level_test_token?: string | null }>("lead", {
-        ...v,
+        ...rest,
+        ...parsed,
         student_age: v.student_age ? Number(v.student_age) : undefined,
         started_at: startedAt,
         utm,
       });
+      track("generate_lead", { form: "trial_form", contact: "phone" in parsed ? "phone" : "telegram", age_group: v.age_group });
       setDone({ no: res.no, test: res.level_test_token });
       setEmotion("joy");
       setLook(null);
@@ -101,12 +94,17 @@ export function TrialSection() {
       const confetti = (await import("canvas-confetti")).default;
       confetti({ particleCount: 140, spread: 80, origin: { y: 0.6 }, colors: ["#8cc1f2", "#fb7b63", "#ffffff", "#16447a", "#ffd166"] });
     } catch (e) {
-      setServerError(e instanceof Error ? e.message : "Не вдалося надіслати заявку");
+      const message = e instanceof Error ? e.message : "Не вдалося надіслати заявку";
+      track("lead_form_error", { form: "trial_form", reason: message });
+      setServerError(message);
       setEmotion("sad");
     }
   };
 
-  const onInvalid = () => react("surprised", 1600);
+  const onInvalid = (errors: Record<string, unknown>) => {
+    track("lead_form_error", { form: "trial_form", reason: Object.keys(errors).join(",") });
+    react("surprised", 1600);
+  };
 
   return (
     <section id="trial" className="relative overflow-hidden py-24 sm:py-32">
@@ -121,7 +119,7 @@ export function TrialSection() {
               <span className="eyebrow">🎁 Безкоштовно</span>
               <h2 className="mt-5 text-3xl leading-tight font-bold text-ocean-900 sm:text-4xl">Запишіться на пробний урок</h2>
               <p className="mt-3 max-w-lg text-ink-soft">
-                Урок у Google Meet у міні-групі до 4 учасників (60 хв) або індивідуально (30 хв): знайомство, визначення рівня та план навчання. Менеджер зв&apos;яжеться протягом робочого дня.
+                Урок у Google Meet у міні-групі до 4 учасників (60 хв) або індивідуально (30 хв): знайомство, визначення рівня та план навчання. Залиште ім&apos;я й контакт — решту уточнимо самі.
               </p>
 
               <AnimatePresence mode="wait">
@@ -160,7 +158,7 @@ export function TrialSection() {
                         variant="outline"
                         onClick={() => {
                           setDone(null);
-                          form.reset({ age_group: "teens", consent: false, name: "", phone: "" });
+                          form.reset({ age_group: "teens", name: "", contact: "" });
                           setEmotion("happy");
                           setLook(null);
                         }}
@@ -194,85 +192,93 @@ export function TrialSection() {
                         className="flex w-full flex-wrap [&>button]:flex-1"
                       />
                     </Field>
-                    <div className="grid gap-5 sm:grid-cols-[1fr_7rem]">
+                    <div className="grid gap-5 sm:grid-cols-2">
                       <Field label="Ім'я учня" error={formState.errors.name?.message} htmlFor="t-name">
                         <Input
                           id="t-name"
                           placeholder="Наприклад, Софія"
-                          autoComplete="name"
+                          autoComplete="given-name"
                           aria-invalid={!!formState.errors.name}
                           {...register("name")}
-                          onFocus={() => setLook({ x: -0.9, y: -0.1 })}
+                          onFocus={() => {
+                            onFieldFocus();
+                            setLook({ x: -0.9, y: -0.1 });
+                          }}
                         />
                       </Field>
-                      <Field label="Вік" htmlFor="t-age">
-                        <Input id="t-age" type="number" min={4} max={99} placeholder="14" inputMode="numeric" {...register("student_age")} />
-                      </Field>
-                    </div>
-                    <div className="grid gap-5 sm:grid-cols-2">
-                      <Field label="Телефон" error={formState.errors.phone?.message} htmlFor="t-phone">
+                      <Field label="Телефон або Telegram" error={formState.errors.contact?.message} htmlFor="t-contact">
                         <Input
-                          id="t-phone"
-                          type="tel"
-                          inputMode="tel"
-                          placeholder="+38 067 123 45 67 або +48 …"
+                          id="t-contact"
+                          type="text"
+                          placeholder="+380 67 123 45 67 або @нік"
                           autoComplete="tel"
-                          aria-invalid={!!formState.errors.phone}
-                          {...register("phone", {
+                          aria-invalid={!!formState.errors.contact}
+                          {...register("contact", {
                             onChange: (e) => {
-                              const f = formatPhone(e.target.value);
-                              setValue("phone", f);
+                              const f = formatContact(e.target.value);
+                              setValue("contact", f);
                               if (f.replace(/\D/g, "").length === 12) react("wink", 1100);
                             },
                           })}
-                          onFocus={() => setLook({ x: -0.9, y: 0.25 })}
+                          onFocus={() => {
+                            onFieldFocus();
+                            setLook({ x: -0.9, y: 0.25 });
+                          }}
                         />
                       </Field>
-                      <Field label="Telegram" hint="необов'язково" htmlFor="t-tg">
-                        <Input id="t-tg" placeholder="@username" {...register("telegram")} onFocus={() => setLook({ x: -0.6, y: 0.25 })} />
-                      </Field>
                     </div>
-                    <div className="grid gap-5 sm:grid-cols-3">
-                      <Field label="Мета" htmlFor="t-goal">
-                        <Select id="t-goal" {...register("goal")} defaultValue="">
-                          <option value="">Оберіть</option>
-                          {GOALS.map((g) => <option key={g}>{g}</option>)}
-                        </Select>
-                      </Field>
-                      <Field label="Рівень" htmlFor="t-level">
-                        <Select id="t-level" {...register("level")} defaultValue="">
-                          <option value="">Оберіть</option>
-                          {LEVELS.map((g) => <option key={g}>{g}</option>)}
-                        </Select>
-                      </Field>
-                      <Field label="Зручний час" htmlFor="t-time">
-                        <Select id="t-time" {...register("preferred_time")} defaultValue="">
-                          <option value="">Будь-коли</option>
-                          {TIMES.map((g) => <option key={g}>{g}</option>)}
-                        </Select>
-                      </Field>
-                    </div>
-                    <Field label="Коментар" hint="необов'язково" htmlFor="t-comment">
-                      <Textarea id="t-comment" rows={2} placeholder="Що важливо знати викладачу?" {...register("comment")} onFocus={() => setLook({ x: -0.8, y: 0.5 })} />
-                    </Field>
 
-                    <label className="flex items-start gap-3 text-sm text-ink-soft">
-                      <input type="checkbox" className="mt-0.5 size-4.5 accent-seal-600" aria-invalid={!!formState.errors.consent} aria-describedby={formState.errors.consent ? "t-consent-error" : undefined} {...register("consent")} />
-                      <span>
-                        Погоджуюсь з <a href="/privacy/" className="font-semibold text-seal-700 underline-offset-2 hover:underline">політикою конфіденційності</a> та обробкою персональних даних. Якщо учню менше 18 — заявку залишає один із батьків або законний представник.
-                      </span>
-                    </label>
-                    {formState.errors.consent && <p id="t-consent-error" role="alert" className="-mt-3 text-xs font-medium text-coral-600">{formState.errors.consent.message}</p>}
+                    <details className="group rounded-2xl border border-line bg-white/60 px-4 py-3">
+                      <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-semibold text-ink-soft [&::-webkit-details-marker]:hidden">
+                        Додати деталі для викладача <span className="flex items-center gap-1 font-normal text-mute">необов&apos;язково <ChevronDown className="size-4 transition group-open:rotate-180" /></span>
+                      </summary>
+                      <div className="mt-4 grid gap-5">
+                        <div className="grid gap-5 sm:grid-cols-[7rem_1fr_1fr]">
+                          <Field label="Вік" htmlFor="t-age">
+                            <Input id="t-age" type="number" min={4} max={99} placeholder="14" inputMode="numeric" {...register("student_age")} />
+                          </Field>
+                          <Field label="Мета" htmlFor="t-goal">
+                            <Select id="t-goal" {...register("goal")} defaultValue="">
+                              <option value="">Оберіть</option>
+                              {GOALS.map((g) => <option key={g}>{g}</option>)}
+                            </Select>
+                          </Field>
+                          <Field label="Рівень" htmlFor="t-level">
+                            <Select id="t-level" {...register("level")} defaultValue="">
+                              <option value="">Оберіть</option>
+                              {LEVELS.map((g) => <option key={g}>{g}</option>)}
+                            </Select>
+                          </Field>
+                        </div>
+                        <div className="grid gap-5 sm:grid-cols-[1fr_2fr]">
+                          <Field label="Зручний час" htmlFor="t-time">
+                            <Select id="t-time" {...register("preferred_time")} defaultValue="">
+                              <option value="">Будь-коли</option>
+                              {TIMES.map((g) => <option key={g}>{g}</option>)}
+                            </Select>
+                          </Field>
+                          <Field label="Коментар" htmlFor="t-comment">
+                            <Textarea id="t-comment" rows={1} placeholder="Що важливо знати викладачу?" {...register("comment")} onFocus={() => setLook({ x: -0.8, y: 0.5 })} />
+                          </Field>
+                        </div>
+                      </div>
+                    </details>
+
                     {serverError && <p role="alert" className="rounded-2xl bg-coral-50 px-4 py-3 text-sm font-medium text-coral-700">{serverError}</p>}
 
-                    <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                       <Button type="submit" size="xl" loading={formState.isSubmitting} className="w-full sm:w-auto">
                         Записатися безкоштовно <ArrowRight />
                       </Button>
-                      <span className="flex items-center gap-2 text-xs text-mute">
-                        <ShieldCheck className="size-4 text-emerald-500" /> Без спаму. Дані бачить лише менеджер школи.
-                      </span>
+                      <BotTrialButton placement="trial_form" bot={bot} className="w-full sm:w-auto" />
                     </div>
+                    <p className="flex items-start gap-2 text-xs text-mute">
+                      <ShieldCheck className="size-4 shrink-0 text-emerald-500" />
+                      <span>
+                        Без спаму, дані бачить лише менеджер школи. Надсилаючи заявку, ви погоджуєтесь з{" "}
+                        <a href="/privacy/" className="font-semibold text-seal-700 underline-offset-2 hover:underline">політикою конфіденційності</a>.
+                      </span>
+                    </p>
                   </motion.form>
                 )}
               </AnimatePresence>
