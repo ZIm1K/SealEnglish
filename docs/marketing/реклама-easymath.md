@@ -29,8 +29,8 @@ If I ___ more time, I would prepare for NMT better.
 - «пройти тест»: сховати посилання (Ctrl+K)
   https://www.sealenglish.school/test/?utm_source=telegram&utm_medium=ads&utm_campaign=easymath_2809
 - «запис у нашому Telegram-боті»: сховати посилання
-  https://t.me/SealEnglishBot?start=trial
-  (після деплою оновленого бота можна замінити на `?start=trial_easymath_2809`, тоді ліди з бота теж будуть з міткою кампанії)
+  https://t.me/SealEnglishBot?start=trial_easymath_2809
+  (заявки з бота прийдуть з міткою кампанії easymath_2809)
 
 ## Промт для фото (1:1, 1080×1080)
 

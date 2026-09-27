@@ -44,3 +44,9 @@ export function track(event: string, params: TrackParams = {}) {
   for (const k of PARAM_KEYS) push[k] = params[k];
   window.dataLayer!.push(push);
 }
+
+/** Deep link into the bot's trial flow; the page's utm_campaign travels in the /start payload (telegram function). */
+export function botTrialLink(bot: string): string {
+  const campaign = new URLSearchParams(window.location.search).get("utm_campaign")?.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 50);
+  return `https://t.me/${bot}?start=${campaign ? `trial_${campaign}` : "trial"}`;
+}
