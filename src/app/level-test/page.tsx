@@ -7,7 +7,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowLeft, ArrowRight, CheckCircle2 } from "lucide-react";
 import { SiteHeader } from "@/components/site/SiteHeader";
 import { SiteFooter } from "@/components/site/SiteFooter";
-import { Seal } from "@/components/mascot/Seal";
+import { Seal3D } from "@/components/mascot/Seal3D";
 import { Button } from "@/components/ui/button";
 import { Field, Textarea } from "@/components/ui/form";
 import { Skeleton } from "@/components/ui/misc";
@@ -67,7 +67,7 @@ function LevelTest() {
               <p className="mt-4 leading-relaxed text-ink-soft">{result.feedback}</p>
               <p className="mt-4 text-sm text-mute">Результат уже бачить менеджер — на пробному уроці викладач уточнить рівень у розмові.</p>
             </div>
-            <div className="mx-auto w-40"><Seal emotion="joy" crop="bust" wave /></div>
+            <div className="mx-auto w-40"><Seal3D emotion="joy" crop="bust" wave /></div>
           </div>
         ) : step === "quiz" ? (
           <>

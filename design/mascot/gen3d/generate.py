@@ -56,9 +56,11 @@ POSES = {
 }
 
 EMOTIONS = {
-    "joy": "both eyes squeezed shut into happy upward arcs (^ ^), wide open-mouth laugh, brows raised, extra rosy cheeks",
+    "joy": "both eyes squeezed shut into happy upward arcs (^ ^), wide open-mouth laugh, brows raised; the cheeks stay the same "
+           "small coral-pink circles (same size, no glow)",
     "surprised": 'eyes wide open, small round "o" mouth, brows raised high',
-    "love": "both eyes closed in soft happy arcs, gentle closed-mouth smile, very rosy blushing cheeks",
+    "love": "both eyes closed in soft happy arcs, gentle closed-mouth smile, cheeks a little pinker but the same small round "
+            "circles (same size, no glow)",
     "wink": "one eye open, the other closed in a happy arc (a playful wink), open-mouth grin",
     "neutral": "eyes open looking at the viewer, calm small closed-mouth smile",
     "sad": "eyes open looking slightly down, small downturned mouth, brows tilted up in the middle, paler cheeks",
@@ -76,9 +78,13 @@ BLINK = f"Change ONLY the eyes: both eyes gently closed mid-blink (soft curved c
 WAVE_B = ("Change ONLY the raised waving flipper: tilt it about 30 degrees further outward and slightly lower, the other "
           "moment of a waving motion. Keep the face, body, book and everything else exactly identical, same size and "
           "position in the frame, same solid pure green #00FF00 background.")
-ICE = ("A small ice floe in the same soft matte 3D toy style as the attached character sheets — white and light icy blue, "
-       "rounded smooth edges, viewed slightly from above, wide oval shape like a little stage for a character to stand on. "
-       "Wide 16:9 frame, the floe fills about 85% of the width. Background: solid flat pure green #00FF00, no shadow, nothing else.")
+ICE = ("One small floating ice floe, a cute 3D toy render in the same soft matte style as the attached character sheets. "
+       "Flat top covered with clean cool bluish-white snow (#F4F9FF), thick opaque sides of matte pale icy blue (#CFE8FF fading "
+       "to #8EC3F2 at the bottom) with a few soft rounded chips. An organic, slightly irregular outline with gentle bumps, "
+       "like a chunk broken off an ice sheet — not a perfect circle, not a dish or a puck, no raised rim. Viewed slightly "
+       "from above, wide and shallow, like a little stage for a character to stand on. Wide 16:9 frame, the floe centered and filling about 85% of the width. "
+       "Background: solid flat pure green #00FF00. Only this one object: no water, no reflection, no second floe, no shadow, "
+       "no snowflakes, no cream or beige tones.")
 
 # name -> (source frame or None for reference-based generation, prompt, aspect ratio)
 JOBS: dict[str, tuple[str | None, str, str]] = {}

@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion, useMotionValue, useSpring, useTransform } from "motion/react";
 import { ArrowRight, Gift, Sparkles, Users, Video } from "lucide-react";
-import { Seal, type SealEmotion } from "@/components/mascot/Seal";
+import type { SealEmotion } from "@/components/mascot/Seal";
+import { hasSeal3D, Seal3D, seal3dIce } from "@/components/mascot/Seal3D";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 const PHRASES = [
   "Hi! I'm Seally 👋",
@@ -210,13 +212,14 @@ export function Hero() {
             initial={{ opacity: 0, y: 40, scale: 0.94 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             transition={{ type: "spring", stiffness: 120, damping: 16, delay: 0.2 }}
-            className="relative z-10 mx-auto w-[88%] cursor-pointer sm:w-[80%]"
+            // the 3D frames are cropped tight around the body, the 2D rig has air around it
+            className={cn("relative z-10 mx-auto cursor-pointer", hasSeal3D ? "w-[70%] sm:w-[62%]" : "w-[88%] sm:w-[80%]")}
             onClick={onPoke}
             onPointerEnter={(e) => e.pointerType === "mouse" && !reply && setEmotion("joy")}
             onPointerLeave={(e) => e.pointerType === "mouse" && !reply && setEmotion("happy")}
           >
-            <Seal emotion={emotion} wave={wave} track reading={!wave} jumpKey={jump} />
-            <IceFloe />
+            <Seal3D emotion={emotion} wave={wave} track reading={!wave} jumpKey={jump} ice preload />
+            {!seal3dIce && <IceFloe />}
           </motion.div>
         </div>
       </div>

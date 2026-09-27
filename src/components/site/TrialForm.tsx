@@ -6,7 +6,8 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowRight, Send, ShieldCheck, PartyPopper, FlaskConical } from "lucide-react";
-import { Seal, type SealEmotion } from "@/components/mascot/Seal";
+import type { SealEmotion } from "@/components/mascot/Seal";
+import { Seal3D } from "@/components/mascot/Seal3D";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Segmented, Select, Textarea } from "@/components/ui/form";
 import { callFunction, supabase } from "@/lib/supabase";
@@ -294,7 +295,7 @@ export function TrialSection() {
                 </AnimatePresence>
               </div>
               <div className="absolute inset-x-8 bottom-6">
-                <Seal emotion={emotion} look={look} track={!look} reading={formState.isSubmitting} jumpKey={jump} wave={!!done} />
+                <Seal3D emotion={emotion} look={look} track={!look} reading={formState.isSubmitting} jumpKey={jump} wave={!!done} preload />
               </div>
             </div>
           </div>

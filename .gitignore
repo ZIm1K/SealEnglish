@@ -19,3 +19,4 @@ __pycache__/
 
 # raw Gemini renders (large); keyed frames live in public/mascot3d
 design/mascot/gen3d/raw/
+design/mascot/gen3d/preview.jpg

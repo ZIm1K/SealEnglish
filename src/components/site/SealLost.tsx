@@ -1,7 +1,7 @@
 "use client";
 
-import { Seal } from "@/components/mascot/Seal";
+import { Seal3D } from "@/components/mascot/Seal3D";
 
 export function SealLost() {
-  return <Seal emotion="sad" track />;
+  return <Seal3D emotion="sad" track hop />;
 }
