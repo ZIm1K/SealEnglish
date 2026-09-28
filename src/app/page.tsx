@@ -8,6 +8,7 @@ import { Faq } from "@/components/site/Faq";
 import { TrialSection } from "@/components/site/TrialForm";
 import { SiteFooter } from "@/components/site/SiteFooter";
 import { Marquee } from "@/components/site/Marquee";
+import { Social } from "@/components/site/Social";
 import type { Metadata } from "next";
 import { FAQ, SITE } from "@/content/site";
 
@@ -56,6 +57,7 @@ export default function Home() {
         <Programs />
         <Method />
         <Platform />
+        <Social />
         <Pricing />
         <TrialSection />
         <Faq />
