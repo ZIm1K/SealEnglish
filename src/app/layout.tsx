@@ -25,7 +25,8 @@ export const metadata: Metadata = {
     siteName: SITE.name,
     title: `${SITE.name} — англійська, яку хочеться вчити`,
     description: SITE.description,
-    images: [{ url: "/og.png", width: 1200, height: 630, alt: SITE.name }],
+    // bump ?v= when og.png changes: messengers cache previews by image URL
+    images: [{ url: "/og.png?v=2", width: 1200, height: 630, alt: SITE.name }],
   },
   twitter: { card: "summary_large_image" },
   icons: {

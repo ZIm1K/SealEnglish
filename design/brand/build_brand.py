@@ -6,6 +6,7 @@ Text is converted to outlines (Unbounded) so every SVG is font-independent.
 """
 from __future__ import annotations
 
+import base64
 import io
 import json
 import re
@@ -170,6 +171,26 @@ def logo_svg(dark_bg: bool) -> str:
     )
 
 
+def raster(path: Path) -> str:
+    buf = io.BytesIO()
+    Image.open(path).save(buf, "PNG")
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+def seal_3d(cx: float, baseline: float, scale: float) -> str:
+    """The 3D Сілі on the ice floe, laid out like <Seal3D ice> (src/components/mascot/seal3d-frames.ts)."""
+    m3d = PUB / "mascot3d"
+    fw, fh, f_cx, f_base = 794, 1034, 397, 1016
+    x, y = cx - f_cx * scale, baseline - f_base * scale
+    ice_w = fw * 0.98 * scale
+    ice_h = ice_w * 592 / 1200
+    return (
+        f'<image href="{raster(m3d / "ice.webp")}" x="{cx - ice_w / 2:.1f}" y="{baseline - ice_h * 0.4:.1f}" width="{ice_w:.1f}" height="{ice_h:.1f}"/>'
+        f'<image href="{raster(m3d / "shadow-wave.webp")}" x="{x:.1f}" y="{y + 926 * scale:.1f}" width="{fw * scale:.1f}" height="{130 * scale:.1f}" preserveAspectRatio="none"/>'
+        f'<image href="{raster(m3d / "wave-happy.webp")}" x="{x:.1f}" y="{y:.1f}" width="{fw * scale:.1f}" height="{fh * scale:.1f}"/>'
+    )
+
+
 def og_svg() -> str:
     W, H = 1200, 630
     title_d, _ = text_path("Seal English", 88, 80, 262)
@@ -185,8 +206,7 @@ def og_svg() -> str:
         "</defs>"
         f'<rect width="{W}" height="{H}" fill="#061428"/><rect width="{W}" height="{H}" fill="url(#a1)"/><rect width="{W}" height="{H}" fill="url(#a2)"/>'
         '<circle cx="930" cy="330" r="300" fill="url(#halo)"/>'
-        '<ellipse cx="930" cy="578" rx="215" ry="24" fill="#a9d0f7" opacity=".7"/><ellipse cx="930" cy="570" rx="210" ry="20" fill="#eaf5ff"/>'
-        f'<g transform="translate(700 70) scale(0.62) translate(-200 -120)">{seal_full()}</g>'
+        f"{seal_3d(930, 560, 0.5)}"
         f'<path d="{title_d}" fill="#fff"/>'
         f'<path d="{l1}" fill="#cbe3fd"/><path d="{l2}" fill="#8cc1f2"/>'
         f'<rect x="80" y="478" width="{tag_w + 60:.0f}" height="60" rx="30" fill="#fb7b63"/>'
