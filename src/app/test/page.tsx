@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { SiteHeader } from "@/components/site/SiteHeader";
 import { SiteFooter } from "@/components/site/SiteFooter";
 import { LevelQuiz } from "@/components/site/LevelQuiz";
+import { Promo } from "@/components/site/Promo";
 import { SITE } from "@/content/site";
 
 const TITLE = "Тест рівня англійської онлайн — безкоштовно, 5 хвилин";
@@ -56,6 +57,7 @@ export default function TestPage() {
         </section>
       </main>
       <SiteFooter />
+      <Promo autoOpenAfter={null} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
     </>
   );

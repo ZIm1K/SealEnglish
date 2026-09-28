@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/form";
 import { callFunction } from "@/lib/supabase";
 import { track } from "@/lib/analytics";
+import { promoEndLabel, promoNote, usePromo } from "@/lib/promo";
+import { PROMO } from "@/content/site";
 import { CONTACT_ERROR, formatContact, parseContact } from "@/lib/contact";
 import { BotTrialButton } from "./BotTrialButton";
 import { LEVEL_INFO, QUIZ, quizLevel } from "@/content/quiz";
@@ -148,6 +150,7 @@ function TrialLead({ level, score, onDone }: { level: string; score: number; onD
   const [sending, setSending] = useState(false);
   const [done, setDone] = useState(false);
   const [started, setStarted] = useState(false);
+  const promo = usePromo();
 
   const onFocus = () => {
     if (started) return;
@@ -172,7 +175,7 @@ function TrialLead({ level, score, onDone }: { level: string; score: number; onD
         ...parsed,
         age_group: "teens",
         level: `${level} · тест на сайті ${score}/${QUIZ.length}`,
-        comment: "Заявка після безкоштовного тесту рівня на сайті",
+        comment: ["Заявка після безкоштовного тесту рівня на сайті", promoNote()].filter(Boolean).join("\n"),
         website,
         started_at: shownAt,
         utm,
@@ -204,6 +207,11 @@ function TrialLead({ level, score, onDone }: { level: string; score: number; onD
       <div>
         <h3 className="font-display text-xl font-bold text-ocean-900">Безкоштовний пробний урок під рівень {level}</h3>
         <p className="mt-1 text-sm text-ink-soft">Живе заняття в Google Meet: викладач перевірить рівень у розмові й покаже, що підтягнути до НМТ. Без зобов&apos;язань.</p>
+        {promo.active && (
+          <p className="mt-3 rounded-2xl bg-coral-500 px-4 py-2.5 text-sm font-semibold text-white">
+            🔥 Запишись до {promoEndLabel} — {PROMO.term} за акційною ціною: група {PROMO.prices.group} ₴, індивідуально {PROMO.prices.solo} ₴ за урок
+          </p>
+        )}
       </div>
       <input type="text" tabIndex={-1} autoComplete="off" className="hidden" aria-hidden value={website} onChange={(e) => setWebsite(e.target.value)} />
       <div className="grid gap-4 sm:grid-cols-2">

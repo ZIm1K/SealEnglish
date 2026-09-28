@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Field, Input, Segmented, Select, Textarea } from "@/components/ui/form";
 import { callFunction, supabase } from "@/lib/supabase";
 import { track } from "@/lib/analytics";
+import { promoNote } from "@/lib/promo";
 import { CONTACT_ERROR, formatContact, parseContact } from "@/lib/contact";
 import { SITE } from "@/content/site";
 import { BotTrialButton } from "./BotTrialButton";
@@ -84,6 +85,7 @@ export function TrialSection() {
         ...rest,
         ...parsed,
         student_age: v.student_age ? Number(v.student_age) : undefined,
+        comment: [v.comment, promoNote()].filter(Boolean).join("\n") || undefined,
         started_at: startedAt,
         utm,
       });

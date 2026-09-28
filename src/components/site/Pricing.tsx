@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { Check } from "lucide-react";
-import { discount, PLANS } from "@/content/site";
+import { discount, PLANS, PROMO, promoOff } from "@/content/site";
+import { formatLeft, promoEndLabel, usePromo } from "@/lib/promo";
 import { Reveal, SectionHead } from "./Reveal";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/form";
@@ -12,6 +13,7 @@ const uah = (n: number) => `${n.toLocaleString("uk-UA")} ₴`;
 
 export function Pricing() {
   const [mode, setMode] = useState<"monthly" | "package">("package");
+  const promo = usePromo();
   return (
     <section id="pricing" className="py-24 sm:py-32">
       <div className="container-page">
@@ -21,7 +23,7 @@ export function Pricing() {
           title="Чесна ціна за урок — без прихованих платежів"
           text="Заняття двічі на тиждень. Платіть помісячно або пакетом зі знижкою. Пробний урок — безкоштовно."
         />
-        <div className="mt-10 flex justify-center">
+        <div className={cn("mt-10 flex justify-center", promo.active && "hidden")}>
           <Segmented
             value={mode}
             onChange={setMode}
@@ -32,9 +34,16 @@ export function Pricing() {
             ]}
           />
         </div>
+        {promo.active && (
+          <div className="mx-auto mt-8 flex max-w-2xl flex-wrap items-center justify-center gap-x-3 gap-y-1 rounded-2xl bg-coral-500 px-5 py-3 text-center text-sm font-semibold text-white shadow-coral">
+            <span>🔥 Акція 24 години: ціна на {PROMO.term} для всіх, хто залишить заявку до {promoEndLabel}</span>
+            <span className="rounded-lg bg-white/20 px-2 py-0.5 font-mono tabular-nums">{formatLeft(promo.left)}</span>
+          </div>
+        )}
         <div className="mt-10 grid gap-5 lg:grid-cols-3">
           {PLANS.map((p, i) => {
-            const perLesson = mode === "package" ? p.package : p.monthly;
+            const regular = mode === "package" && !promo.active ? p.package : p.monthly;
+            const perLesson = promo.active ? PROMO.prices[p.id] : regular;
             return (
               <Reveal key={p.id} delay={i * 0.08}>
                 <div
@@ -52,13 +61,16 @@ export function Pricing() {
                   )}
                   <h3 className={cn("font-display text-xl font-semibold", !p.highlight && "text-ocean-900")}>{p.title}</h3>
                   <p className={cn("mt-1 text-sm", p.highlight ? "text-seal-200/80" : "text-mute")}>{p.format}</p>
-                  <div className="mt-7 flex items-baseline gap-2">
-                    <span className="font-display text-4xl font-bold">{uah(perLesson)}</span>
+                  <div className="mt-7 flex flex-wrap items-baseline gap-x-2">
+                    {promo.active && <s className={cn("text-lg", p.highlight ? "text-seal-200/60" : "text-mute")}>{uah(regular)}</s>}
+                    <span className={cn("font-display text-4xl font-bold", promo.active && (p.highlight ? "text-coral-300" : "text-coral-600"))}>{uah(perLesson)}</span>
                     <span className={cn("text-sm", p.highlight ? "text-seal-200/80" : "text-mute")}>за урок</span>
                   </div>
                   <div className={cn("mt-1 text-sm", p.highlight ? "text-seal-200/80" : "text-mute")}>
                     {uah(perLesson * p.perMonth)} на місяць
-                    {mode === "package" ? (
+                    {promo.active ? (
+                      <> · {PROMO.term}, <span className={p.highlight ? "text-coral-300" : "text-coral-600"}>−{promoOff(p)}%</span></>
+                    ) : mode === "package" ? (
                       <> · {p.packageLabel}, <span className={p.highlight ? "text-coral-300" : "text-coral-600"}>−{discount(p)}%</span></>
                     ) : (
                       <> · у пакеті {uah(p.package)}</>

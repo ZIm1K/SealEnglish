@@ -9,6 +9,7 @@ import { TrialSection } from "@/components/site/TrialForm";
 import { SiteFooter } from "@/components/site/SiteFooter";
 import { Marquee } from "@/components/site/Marquee";
 import { Social } from "@/components/site/Social";
+import { Promo } from "@/components/site/Promo";
 import type { Metadata } from "next";
 import { FAQ, SITE } from "@/content/site";
 
@@ -63,6 +64,7 @@ export default function Home() {
         <Faq />
       </main>
       <SiteFooter />
+      <Promo />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
     </>
   );

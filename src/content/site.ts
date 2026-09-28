@@ -134,6 +134,18 @@ export const PLANS: Plan[] = [
 
 export const discount = (p: Plan) => Math.round((1 - p.package / p.monthly) * 100);
 
+/**
+ * 24-hour promo for ad traffic. Price per lesson for the first month for everyone who leaves a request before `endsAt`.
+ * Every promo banner, popup and price hides itself once `endsAt` passes — no redeploy needed.
+ */
+export const PROMO = {
+  endsAt: "2026-09-29T13:00:00+03:00",
+  prices: { group: 230, solo: 350, exam: 230 } satisfies Record<Plan["id"], number>,
+  term: "перший місяць навчання",
+};
+
+export const promoOff = (p: Plan) => Math.round((1 - PROMO.prices[p.id] / p.monthly) * 100);
+
 export const STEPS = [
   { title: "Заявка", text: "Залиште контакт на сайті або в Telegram-боті — це займає 30 секунд." },
   { title: "Пробний урок", text: "Безкоштовно, у міні-групі до 4 учасників або індивідуально: знайомимось, визначаємо рівень і цілі. Без зобов'язань." },
