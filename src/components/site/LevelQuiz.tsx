@@ -204,9 +204,9 @@ function TrialLead({ level, score, onDone }: { level: string; score: number; onD
   }
 
   return (
-    <form onSubmit={submit} noValidate className="mt-8 grid gap-4 rounded-3xl border border-seal-200 bg-seal-50/60 p-6">
+    <div className="mt-8 grid gap-4 rounded-3xl border border-seal-200 bg-seal-50/60 p-6">
       <div>
-        <h3 className="font-display text-xl font-bold text-ocean-900">Безкоштовний пробний урок під рівень {level}</h3>
+        <h3 className="font-display text-xl font-bold text-ocean-900">Безкоштовний розбір і пробний урок під рівень {level}</h3>
         <p className="mt-1 text-sm text-ink-soft">Живе заняття в Google Meet: викладач перевірить рівень у розмові й покаже, що підтягнути до НМТ. Без зобов&apos;язань.</p>
         {promo.active && (
           <p className="mt-3 rounded-2xl bg-coral-500 px-4 py-2.5 text-sm font-semibold text-white">
@@ -214,25 +214,37 @@ function TrialLead({ level, score, onDone }: { level: string; score: number; onD
           </p>
         )}
       </div>
-      <input type="text" tabIndex={-1} autoComplete="off" className="hidden" aria-hidden value={website} onChange={(e) => setWebsite(e.target.value)} />
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Ім'я" htmlFor="q-name">
-          <Input id="q-name" autoComplete="given-name" value={name} onFocus={onFocus} onChange={(e) => setName(e.target.value)} />
-        </Field>
-        <Field label="Телефон або Telegram" htmlFor="q-contact">
-          <Input id="q-contact" type="text" autoComplete="tel" placeholder="+380 67 000 00 00 або @нік" value={contact} onFocus={onFocus} onChange={(e) => setContact(formatContact(e.target.value))} />
-        </Field>
+
+      {/* Teens from Telegram ads skip a phone form but will tap into a bot: the bot is the main action here. */}
+      <div>
+        <BotTrialButton placement="level_quiz_primary" primary className="w-full">
+          Отримати розбір у Telegram
+        </BotTrialButton>
+        <p className="mt-2 text-center text-xs text-mute">Бот поставить 3 коротких питання — без дзвінків і телефону</p>
       </div>
-      {error && <p role="alert" className="rounded-2xl bg-coral-50 px-4 py-3 text-sm font-medium text-coral-700">{error}</p>}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <Button type="submit" size="lg" loading={sending} className="w-full sm:w-auto">
+
+      <div className="flex items-center gap-3 text-xs font-semibold tracking-wide text-mute uppercase">
+        <span className="h-px flex-1 bg-seal-200" /> або залиш контакт — напишемо самі <span className="h-px flex-1 bg-seal-200" />
+      </div>
+
+      <form onSubmit={submit} noValidate className="grid gap-4">
+        <input type="text" tabIndex={-1} autoComplete="off" className="hidden" aria-hidden value={website} onChange={(e) => setWebsite(e.target.value)} />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Ім'я" htmlFor="q-name">
+            <Input id="q-name" autoComplete="given-name" value={name} onFocus={onFocus} onChange={(e) => setName(e.target.value)} />
+          </Field>
+          <Field label="Телефон або Telegram-нік" htmlFor="q-contact">
+            <Input id="q-contact" type="text" autoComplete="tel" placeholder="@нік або +380…" value={contact} onFocus={onFocus} onChange={(e) => setContact(formatContact(e.target.value))} />
+          </Field>
+        </div>
+        {error && <p role="alert" className="rounded-2xl bg-coral-50 px-4 py-3 text-sm font-medium text-coral-700">{error}</p>}
+        <Button type="submit" variant="outline" size="lg" loading={sending} className="w-full sm:w-auto">
           Записатися безкоштовно <ArrowRight />
         </Button>
-        <BotTrialButton placement="level_quiz" className="w-full sm:w-auto" />
-      </div>
-      <p className="text-xs text-mute">
-        Надсилаючи заявку, ви погоджуєтесь з <a href="/privacy/" className="font-semibold text-seal-700 underline-offset-2 hover:underline">політикою конфіденційності</a>. Можна вказати номер когось із батьків.
-      </p>
-    </form>
+        <p className="text-xs text-mute">
+          Надсилаючи заявку, ви погоджуєтесь з <a href="/privacy/" className="font-semibold text-seal-700 underline-offset-2 hover:underline">політикою конфіденційності</a>. Можна вказати номер когось із батьків.
+        </p>
+      </form>
+    </div>
   );
 }

@@ -6,10 +6,18 @@ import { SITE } from "@/content/site";
 import { botTrialLink, track } from "@/lib/analytics";
 
 /** Alternative to the web form: the bot asks 3 questions and takes the phone with one tap. */
-export function BotTrialButton({ placement, bot = SITE.telegramBot, className }: { placement: string; bot?: string; className?: string }) {
+export function BotTrialButton({
+  placement, bot = SITE.telegramBot, className, primary, children,
+}: {
+  placement: string;
+  bot?: string;
+  className?: string;
+  primary?: boolean;
+  children?: React.ReactNode;
+}) {
   if (!bot) return null;
   return (
-    <Button asChild variant="outline" size="lg" className={className}>
+    <Button asChild variant={primary ? "primary" : "outline"} size={primary ? "xl" : "lg"} className={className}>
       <a
         href={`https://t.me/${bot}?start=trial`}
         target="_blank"
@@ -20,7 +28,7 @@ export function BotTrialButton({ placement, bot = SITE.telegramBot, className }:
           track("bot_click", { placement });
         }}
       >
-        <Send className="text-sky-500" /> Записатися в Telegram
+        <Send className={primary ? undefined : "text-sky-500"} /> {children ?? "Записатися в Telegram"}
       </a>
     </Button>
   );
