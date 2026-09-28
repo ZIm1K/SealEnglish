@@ -302,7 +302,7 @@
               {
                 "type": "TEMPLATE",
                 "key": "arg1",
-                "value": "^(page_view|quiz_start|quiz_progress|quiz_complete|lead_form_start|lead_form_error|generate_lead|bot_click|share)$"
+                "value": "^(page_view|quiz_start|quiz_progress|quiz_complete|lead_form_start|lead_form_error|generate_lead|bot_click|share|promo_open)$"
               }
             ]
           }
