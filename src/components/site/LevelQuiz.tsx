@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/form";
 import { callFunction } from "@/lib/supabase";
 import { track } from "@/lib/analytics";
-import { promoEndLabel, promoNote, usePromo } from "@/lib/promo";
+import { markLeadSent, promoEndLabel, promoNote, usePromo } from "@/lib/promo";
 import { PROMO } from "@/content/site";
 import { CONTACT_ERROR, formatContact, parseContact } from "@/lib/contact";
 import { BotTrialButton } from "./BotTrialButton";
@@ -182,6 +182,7 @@ function TrialLead({ level, score, onDone }: { level: string; score: number; onD
       });
       track("generate_lead", { form: "level_quiz", contact: "phone" in parsed ? "phone" : "telegram", level });
       setDone(true);
+      markLeadSent();
       onDone();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Не вдалося надіслати заявку";

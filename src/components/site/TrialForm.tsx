@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Field, Input, Segmented, Select, Textarea } from "@/components/ui/form";
 import { callFunction, supabase } from "@/lib/supabase";
 import { track } from "@/lib/analytics";
-import { promoNote } from "@/lib/promo";
+import { markLeadSent, promoNote } from "@/lib/promo";
 import { CONTACT_ERROR, formatContact, parseContact } from "@/lib/contact";
 import { SITE } from "@/content/site";
 import { BotTrialButton } from "./BotTrialButton";
@@ -91,6 +91,7 @@ export function TrialSection() {
       });
       track("generate_lead", { form: "trial_form", contact: "phone" in parsed ? "phone" : "telegram", age_group: v.age_group });
       setDone({ no: res.no, test: res.level_test_token });
+      markLeadSent();
       setEmotion("joy");
       setLook(null);
       setJump((j) => (j ?? 0) + 1);

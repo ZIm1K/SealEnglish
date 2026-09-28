@@ -34,6 +34,27 @@ export function formatLeft(ms: number) {
   return `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`;
 }
 
+const LEAD_KEY = "lead_sent";
+export const LEAD_EVENT = "seal:lead";
+
+/** Call after any successful request: the promo bar and popup stop chasing someone who already signed up. */
+export function markLeadSent() {
+  try {
+    localStorage.setItem(LEAD_KEY, "1");
+  } catch {
+    // private mode: the event below still hides the promo for this page view
+  }
+  window.dispatchEvent(new Event(LEAD_EVENT));
+}
+
+export function leadSent() {
+  try {
+    return localStorage.getItem(LEAD_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 /** Appended to the lead comment so the manager sees which price was promised. */
 export function promoNote() {
   if (!isPromoActive()) return "";

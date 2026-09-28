@@ -10,7 +10,7 @@ import { Field, Input } from "@/components/ui/form";
 import { callFunction } from "@/lib/supabase";
 import { track } from "@/lib/analytics";
 import { CONTACT_ERROR, formatContact, parseContact } from "@/lib/contact";
-import { formatLeft, promoEndLabel, promoMaxOff, promoNote, usePromo } from "@/lib/promo";
+import { formatLeft, LEAD_EVENT, leadSent, markLeadSent, promoEndLabel, promoMaxOff, promoNote, usePromo } from "@/lib/promo";
 import { PLANS, PROMO } from "@/content/site";
 import { BotTrialButton } from "./BotTrialButton";
 
@@ -44,7 +44,14 @@ export function Promo({ autoOpenAfter = 12 }: { autoOpenAfter?: number | null })
   const [open, setOpen] = useState(false);
   // read on the client only: nothing promo-related renders before mount (usePromo starts inactive)
   const [barClosed, setBarClosed] = useState(() => typeof window === "undefined" || storage.get(sessionStorage, BAR_KEY) === "1");
+  const [signedUp, setSignedUp] = useState(() => typeof window !== "undefined" && leadSent());
   const opened = useRef(false);
+
+  useEffect(() => {
+    const onLead = () => setSignedUp(true);
+    window.addEventListener(LEAD_EVENT, onLead);
+    return () => window.removeEventListener(LEAD_EVENT, onLead);
+  }, []);
 
   const show = (placement: string) => {
     opened.current = true;
@@ -54,17 +61,19 @@ export function Promo({ autoOpenAfter = 12 }: { autoOpenAfter?: number | null })
   };
 
   useEffect(() => {
-    if (!active || opened.current || storage.get(localStorage, SEEN_KEY)) return;
-    const timer = autoOpenAfter === null ? undefined : window.setTimeout(() => !opened.current && show("timer"), autoOpenAfter * 1000);
+    if (!active || signedUp || opened.current || storage.get(localStorage, SEEN_KEY)) return;
+    // never pop over someone who is typing into a form or has just signed up there
+    const busy = () => opened.current || leadSent() || !!document.activeElement?.closest("form");
+    const timer = autoOpenAfter === null ? undefined : window.setTimeout(() => !busy() && show("timer"), autoOpenAfter * 1000);
     const onLeave = (e: MouseEvent) => {
-      if (e.clientY <= 0 && !e.relatedTarget && !opened.current) show("exit_intent");
+      if (e.clientY <= 0 && !e.relatedTarget && !busy()) show("exit_intent");
     };
     document.addEventListener("mouseout", onLeave);
     return () => {
       window.clearTimeout(timer);
       document.removeEventListener("mouseout", onLeave);
     };
-  }, [active, autoOpenAfter]);
+  }, [active, signedUp, autoOpenAfter]);
 
   if (!active) return null;
   const solo = PLANS.find((p) => p.id === "solo")!;
@@ -72,7 +81,7 @@ export function Promo({ autoOpenAfter = 12 }: { autoOpenAfter?: number | null })
   return (
     <>
       <AnimatePresence>
-        {!barClosed && !open && (
+        {!barClosed && !open && !signedUp && (
           <motion.div
             initial={{ y: 80, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
@@ -195,6 +204,7 @@ function PromoForm() {
       await callFunction("lead", { name, ...parsed, age_group: "teens", comment: promoNote(), website, started_at: shownAt, utm });
       track("generate_lead", { form: "promo_popup", contact: "phone" in parsed ? "phone" : "telegram" });
       setDone(true);
+      markLeadSent();
       const confetti = (await import("canvas-confetti")).default;
       confetti({ particleCount: 120, spread: 75, origin: { y: 0.7 }, zIndex: 60, colors: ["#8cc1f2", "#fb7b63", "#ffffff", "#16447a", "#ffd166"] });
     } catch (err) {
