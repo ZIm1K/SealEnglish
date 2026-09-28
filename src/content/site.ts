@@ -14,7 +14,12 @@ export const SITE = {
   email: "support@sealenglish.school",
   phone: "+380 67 645 75 66",
   telegramBot: process.env.NEXT_PUBLIC_TELEGRAM_BOT || "",
-  instagram: "",
+  social: {
+    telegram: "https://t.me/sealenglish",
+    instagram: "https://www.instagram.com/sealenglishschool/",
+    threads: "https://www.threads.com/@sealenglishschool",
+    tiktok: "https://www.tiktok.com/@sealenglish.school",
+  },
   city: "Україна · онлайн",
   legal: {
     owner: "ФОП Зимін Олександр Федорович",
