@@ -55,6 +55,7 @@ const FEATURE_LABEL: Record<string, string> = {
   practice_summary: "Підсумки практики",
   review: "Перевірка ДЗ",
   lesson_summary: "Підсумки уроків",
+  homework_draft: "Генерація ДЗ",
   risk: "Ризик відтоку",
   level_test: "Тест рівня",
   bot_night: "Нічні відповіді бота",

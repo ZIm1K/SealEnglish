@@ -5,7 +5,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { CalendarClock, CheckCircle2, ClipboardList, Plus, Users, UserRound } from "lucide-react";
+import { CalendarClock, CheckCircle2, ClipboardList, Plus, Sparkles, Users, UserRound } from "lucide-react";
 import { PageHeader, EmptyState } from "@/components/app/AppShell";
 import { useMe, isStaffRole } from "@/components/app/session";
 import { FilePicker, uploadFiles } from "@/components/app/files";
@@ -13,9 +13,9 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/overlay";
 import { Field, Input, Segmented, Select, Textarea } from "@/components/ui/form";
 import { Badge, Skeleton } from "@/components/ui/misc";
-import { supabase } from "@/lib/supabase";
-import { useAssignments, useGroups, usePeople, targetLabel } from "@/lib/queries";
-import { fmtDateTime } from "@/lib/dates";
+import { callFunction, supabase } from "@/lib/supabase";
+import { useAiFeatures, useAssignments, useGroups, usePeople, targetLabel } from "@/lib/queries";
+import { fmtDate, fmtDateTime } from "@/lib/dates";
 import { SUBMISSION_STATUS, type Assignment } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -143,6 +143,9 @@ function NewAssignmentForm({ onDone }: { onDone: () => void }) {
   const [due, setDue] = useState("");
   const [maxScore, setMaxScore] = useState(12);
   const [files, setFiles] = useState<File[]>([]);
+  const [wish, setWish] = useState("");
+  const [basedOn, setBasedOn] = useState<string | null>(null);
+  const { data: ai } = useAiFeatures();
 
   const myGroups = staff ? groups : groups.filter((g) => g.teacher_id === me.id);
 
@@ -175,6 +178,30 @@ function NewAssignmentForm({ onDone }: { onDone: () => void }) {
     onError: (e: Error) => e.message !== "Скасовано" && toast.error(e.message.includes("row-level") ? "Можна задавати ДЗ лише своїм групам і учням" : e.message),
   });
 
+  const generate = useMutation({
+    mutationFn: () =>
+      callFunction<{ title: string; description: string; due_at: string | null; lesson: { title: string | null; topic: string | null; starts_at: string; has_summary: boolean } }>(
+        "ai-homework",
+        { [type === "group" ? "group_id" : "student_id"]: target, wish: wish.trim() || undefined },
+      ),
+    onSuccess: (r) => {
+      setTitle(r.title);
+      setDescription(r.description);
+      // Deadline = start of the next lesson, unless the teacher already set one.
+      if (!due && r.due_at) {
+        const d = new Date(r.due_at);
+        setDue(new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16));
+      }
+      setBasedOn(`${r.lesson.topic || r.lesson.title || "Урок"} · ${fmtDate(r.lesson.starts_at)}${r.lesson.has_summary ? "" : " (без підсумку — лише тема)"}`);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const runGenerate = () => {
+    if ((title.trim() || description.trim()) && !confirm("Замінити назву й опис згенерованим завданням?")) return;
+    generate.mutate();
+  };
+
   return (
         <form
           onSubmit={(e) => {
@@ -189,7 +216,7 @@ function NewAssignmentForm({ onDone }: { onDone: () => void }) {
               <Segmented value={type} onChange={(v) => { setType(v); setTarget(""); }} label="Кому" options={[{ value: "group", label: "Групі" }, { value: "student", label: "Учню" }]} />
             </Field>
             <Field label={type === "group" ? "Група" : "Учень"}>
-              <Select value={target} onChange={(e) => setTarget(e.target.value)} required>
+              <Select value={target} onChange={(e) => { setTarget(e.target.value); setBasedOn(null); }} required>
                 <option value="">Оберіть…</option>
                 {type === "group"
                   ? myGroups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)
@@ -197,6 +224,15 @@ function NewAssignmentForm({ onDone }: { onDone: () => void }) {
               </Select>
             </Field>
           </div>
+          {ai?.lesson && target && (
+            <div className="grid gap-2 rounded-2xl border border-seal-200 bg-seal-50/60 p-3">
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input value={wish} onChange={(e) => setWish(e.target.value)} maxLength={500} placeholder="Побажання (необов'язково): більше граматики, коротше…" className="bg-white" />
+                <Button type="button" variant="soft" onClick={runGenerate} loading={generate.isPending}><Sparkles /> Згенерувати з минулого уроку</Button>
+              </div>
+              <p className="text-xs text-mute">{basedOn ? `За уроком: ${basedOn}. Перевірте й відредагуйте перед створенням.` : "ШІ складе завдання за лексикою, граматикою й помилками останнього уроку."}</p>
+            </div>
+          )}
           <Field label="Назва"><Input value={title} onChange={(e) => setTitle(e.target.value)} required placeholder="Essay: My dream job" /></Field>
           <Field label="Опис завдання"><Textarea rows={5} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Що потрібно зробити, вимоги, посилання…" /></Field>
           <div className="grid gap-5 sm:grid-cols-2">

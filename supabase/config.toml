@@ -38,3 +38,6 @@ verify_jwt = false
 
 [functions.ai-level-test]
 verify_jwt = false
+
+[functions.ai-homework]
+verify_jwt = false
