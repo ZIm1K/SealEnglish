@@ -45,8 +45,19 @@ export function track(event: string, params: TrackParams = {}) {
   window.dataLayer!.push(push);
 }
 
-/** Deep link into the bot's trial flow; the page's utm_campaign travels in the /start payload (telegram function). */
-export function botTrialLink(bot: string): string {
-  const campaign = new URLSearchParams(window.location.search).get("utm_campaign")?.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 50);
-  return `https://t.me/${bot}?start=${campaign ? `trial_${campaign}` : "trial"}`;
+/** GA4 client id from the `_ga` cookie ("GA1.1.123.456" → "123.456"), or "" before GA has set it. */
+function gaClientId(): string {
+  return document.cookie.match(/(?:^|;\s*)_ga=GA\d+\.\d+\.(\d+\.\d+)/)?.[1] ?? "";
+}
+
+/**
+ * Deep link into the bot's trial flow (telegram function). Payload: `<head>_<ga client id>_<utm_campaign>`,
+ * where head is `t`, or `q` + the 20 quiz answers so the bot can send the mistake breakdown.
+ * The GA client id lets the bot report its lead to GA4 as this visitor; Telegram caps the payload at 64 chars.
+ */
+export function botTrialLink(bot: string, quizAnswers?: number[]): string {
+  const campaign = new URLSearchParams(window.location.search).get("utm_campaign")?.replace(/[^A-Za-z0-9_-]/g, "") ?? "";
+  const head = quizAnswers ? `q${quizAnswers.join("")}` : "t";
+  const payload = `${head}_${gaClientId().replace(".", "-")}_${campaign}`.slice(0, 64);
+  return `https://t.me/${bot}?start=${payload}`;
 }

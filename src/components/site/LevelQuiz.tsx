@@ -14,7 +14,7 @@ import { PROMO } from "@/content/site";
 import { CONTACT_ERROR, formatContact, parseContact } from "@/lib/contact";
 import { BotTrialButton } from "./BotTrialButton";
 import { LEVEL_INFO, QUIZ, quizLevel } from "@/content/quiz";
-import { cn } from "@/lib/utils";
+import { cn, plural } from "@/lib/utils";
 
 type Stage = "quiz" | "result";
 
@@ -101,7 +101,7 @@ export function LevelQuiz() {
               <p className="mt-1 text-sm text-mute">Правильних відповідей: {score} з {QUIZ.length}</p>
               <p className="mt-5 leading-relaxed text-ink-soft">{LEVEL_INFO[level].text}</p>
               <p className="mt-3 rounded-2xl bg-seal-50 p-4 leading-relaxed text-ink-soft"><b className="text-ocean-900">НМТ:</b> {LEVEL_INFO[level].nmt}</p>
-              <TrialLead level={level} score={score} onDone={() => setEmotion("love")} />
+              <TrialLead level={level} score={score} answers={answers as number[]} onDone={() => setEmotion("love")} />
               <p className="mt-6 text-xs text-mute">Тест перевіряє граматику. Розмовну мову, аудіювання й лексику точніше оцінить викладач на пробному уроці.</p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button variant="ghost" size="sm" onClick={restart}><RotateCcw /> Пройти ще раз</Button>
@@ -141,7 +141,7 @@ function ShareButton({ level }: { level: string }) {
   );
 }
 
-function TrialLead({ level, score, onDone }: { level: string; score: number; onDone: () => void }) {
+function TrialLead({ level, score, answers, onDone }: { level: string; score: number; answers: number[]; onDone: () => void }) {
   const [shownAt] = useState(() => Date.now());
   const [name, setName] = useState("");
   const [contact, setContact] = useState("");
@@ -151,6 +151,7 @@ function TrialLead({ level, score, onDone }: { level: string; score: number; onD
   const [done, setDone] = useState(false);
   const [started, setStarted] = useState(false);
   const promo = usePromo();
+  const mistakes = QUIZ.length - score;
 
   const onFocus = () => {
     if (started) return;
@@ -215,12 +216,18 @@ function TrialLead({ level, score, onDone }: { level: string; score: number; onD
         )}
       </div>
 
-      {/* Teens from Telegram ads skip a phone form but will tap into a bot: the bot is the main action here. */}
+      {/* Teens from Telegram ads skip a phone form but will tap into a bot. The reason to tap is the mistake
+          breakdown: the site shows only the score, the bot sends each mistake with its rule, then offers the trial. */}
       <div>
-        <BotTrialButton placement="level_quiz_primary" primary className="w-full">
-          Отримати розбір у Telegram
+        {mistakes > 0 && (
+          <p className="mb-3 text-sm text-ink-soft">
+            У тебе <b className="text-ocean-900">{mistakes} {plural(mistakes, "помилка", "помилки", "помилок")}</b>. Які саме, правило до кожної і що з цього буде на НМТ — надішлемо в Telegram.
+          </p>
+        )}
+        <BotTrialButton placement="level_quiz_primary" quizAnswers={answers} primary className="w-full">
+          {mistakes > 0 ? "Отримати розбір помилок" : "Отримати план до НМТ"}
         </BotTrialButton>
-        <p className="mt-2 text-center text-xs text-mute">Бот поставить 3 коротких питання — без дзвінків і телефону</p>
+        <p className="mt-2 text-center text-xs text-mute">Одразу в Telegram-боті · без реєстрації й дзвінків</p>
       </div>
 
       <div className="flex items-center gap-3 text-xs font-semibold tracking-wide text-mute uppercase">

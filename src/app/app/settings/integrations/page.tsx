@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import Link from "next/link";
-import { Activity, Bot, CheckCircle2, Copy, ExternalLink, Globe, Link2Off, Mic, Plug, Send, ShieldAlert, Video, CircleAlert } from "lucide-react";
+import { Activity, BarChart3, Bot, CheckCircle2, Copy, ExternalLink, Globe, Link2Off, Mic, Plug, Send, ShieldAlert, Video, CircleAlert } from "lucide-react";
 import { PageHeader, EmptyState } from "@/components/app/AppShell";
 import { useMe } from "@/components/app/session";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ interface Status {
   telegram: { configured: boolean; bot_username: string | null; webhook_url: string | null; pending_updates: number; last_error: string | null };
   google: { client_configured: boolean; client_id: string | null; connected: boolean; account: { email: string | null; connected_at: string } | null; redirect_uri: string };
   ai: { configured: boolean; key_hint: string | null; enabled: boolean };
+  ga: { configured: boolean; key_hint: string | null };
   site_url: string;
 }
 
@@ -82,6 +83,7 @@ function Inner() {
           <div className="grid gap-6 lg:grid-cols-2">
             <AiBlock st={st} onChange={refresh} />
             <SttBlock />
+            <GaBlock st={st} onChange={refresh} />
             <HealthBlock />
           </div>
           <SiteBlock st={st} onChange={refresh} />
@@ -296,6 +298,57 @@ function AiBlock({ st, onChange }: { st: Status; onChange: () => void }) {
             <Input value={key} onChange={(e) => setKey(e.target.value)} placeholder="sk-ant-…" type="password" autoComplete="off" />
           </Field>
           <Button type="submit" disabled={!key} loading={save.isPending}><Plug /> {a.configured ? "Оновити ключ" : "Перевірити й зберегти"}</Button>
+        </form>
+      </div>
+    </Card>
+  );
+}
+
+/** GA4 Measurement Protocol: sign-ups through the Telegram bot are sent to GA4 as generate_lead (supabase/functions/_shared/ga.ts). */
+function GaBlock({ st, onChange }: { st: Status; onChange: () => void }) {
+  const [secret, setSecret] = useState("");
+  const save = useMutation({
+    mutationFn: () => callFunction("admin", { action: "save_ga_secret", secret }),
+    onSuccess: () => {
+      toast.success("Збережено. Заявки з бота тепер ідуть у GA4 як generate_lead");
+      setSecret("");
+      onChange();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const remove = useMutation({
+    mutationFn: () => callFunction("admin", { action: "remove_ga_secret" }),
+    onSuccess: () => {
+      toast.success("Секрет видалено");
+      onChange();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const g = st.ga;
+  return (
+    <Card>
+      <CardHeader
+        title={<span className="flex items-center gap-2"><BarChart3 className="size-5 text-amber-500" /> Google Analytics: заявки з бота</span>}
+        description="Сайт сам передає події в GA4. Запис через Telegram-бота відбувається поза сайтом — його бот надсилає в GA4 через Measurement Protocol."
+        action={g.configured ? <Badge tone="mint"><CheckCircle2 className="size-3" /> Працює</Badge> : <Badge tone="gray">Не налаштовано</Badge>}
+      />
+      <div className="grid gap-4 p-5 sm:p-6">
+        {g.configured ? (
+          <div className="flex flex-wrap items-center gap-2 rounded-2xl bg-amber-50 p-4 text-sm">
+            Секрет <code>{g.key_hint}</code>
+            <Button size="sm" variant="ghost" className="ml-auto text-red-600" onClick={() => confirm("Видалити секрет? Заявки з бота перестануть потрапляти в GA4.") && remove.mutate()}><Link2Off /> Видалити</Button>
+          </div>
+        ) : (
+          <ol className="grid gap-2">
+            <Step n={1}>У <a href="https://analytics.google.com/" target="_blank" rel="noreferrer" className="font-semibold text-seal-700 underline">Google Analytics</a>: <b>Адміністратор → Потоки даних</b> → потік сайту.</Step>
+            <Step n={2}><b>Секрети API Measurement Protocol → Створити</b>, назва «telegram-bot». Скопіюйте значення секрету і вставте нижче.</Step>
+          </ol>
+        )}
+        <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="grid gap-3">
+          <Field label={g.configured ? "Замінити секрет" : "API secret"}>
+            <Input value={secret} onChange={(e) => setSecret(e.target.value)} type="password" autoComplete="off" />
+          </Field>
+          <Button type="submit" disabled={!secret} loading={save.isPending}><Plug /> {g.configured ? "Оновити" : "Зберегти"}</Button>
         </form>
       </div>
     </Card>

@@ -7,9 +7,11 @@ import { botTrialLink, track } from "@/lib/analytics";
 
 /** Alternative to the web form: the bot asks 3 questions and takes the phone with one tap. */
 export function BotTrialButton({
-  placement, bot = SITE.telegramBot, className, primary, children,
+  placement, bot = SITE.telegramBot, quizAnswers, className, primary, children,
 }: {
   placement: string;
+  /** Answers of a finished level quiz: the bot replies with a breakdown of the mistakes. */
+  quizAnswers?: number[];
   bot?: string;
   className?: string;
   primary?: boolean;
@@ -24,7 +26,7 @@ export function BotTrialButton({
         rel="noreferrer"
         onClick={(e) => {
           // Static HTML has no URL params; the campaign is added at click time.
-          e.currentTarget.href = botTrialLink(bot);
+          e.currentTarget.href = botTrialLink(bot, quizAnswers);
           track("bot_click", { placement });
         }}
       >

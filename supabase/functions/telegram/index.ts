@@ -6,6 +6,8 @@ import {
 import { aiClient, aiSettings, assertGlobalBudget, logUsage, textOf } from "../_shared/ai.ts";
 import { nightReplySystem } from "../_shared/prompts.ts";
 import { SCHOOL_FACTS } from "../_shared/school.ts";
+import { gaEvent } from "../_shared/ga.ts";
+import { LEVEL_INFO, QUIZ, quizLevel, type QuizLevel } from "../_shared/quiz.ts";
 import {
   AGE_GROUP, esc, isPublicHttps, LEAD_STATUS, leadCard, leadKeyboard, loadLead, sendLeadCard, sendMessage, tg,
   type InlineKeyboard,
@@ -235,10 +237,72 @@ const TIME_SLOTS: Record<string, string> = {
 /** Button that skips the phone step: the manager writes to the @username instead. */
 const NO_PHONE = "💬 Без телефону, пишіть у Telegram";
 
-/** `campaign` comes from the deep link (/start trial_<utm_campaign>) so ad leads are attributed like site leads. */
-async function startTrial(chatId: number, campaign = "") {
-  await setSession(chatId, "trial:name", campaign ? { campaign } : {});
-  await sendMessage(chatId, `🎁 <b>Запис на безкоштовний пробний урок</b>\n\nПробний урок проходить у Google Meet у міні-групі до 4 учасників (60 хв) або індивідуально (30 хв): знайомимось, визначаємо рівень і складаємо план навчання.\n\nЯк звати учня? ✍️`, {
+interface QuizResult {
+  level: QuizLevel;
+  score: number;
+  topics: string[];
+}
+
+interface TrialOrigin {
+  /** utm_campaign of the site page or of the post (/start trial_<campaign>), so ad leads are attributed like site leads. */
+  campaign?: string;
+  /** Visitor's GA4 client id from the site: the bot reports its lead to GA4 as the same visitor. */
+  cid?: string;
+  quiz?: QuizResult;
+}
+
+/**
+ * /start payloads that open the trial flow:
+ *   trial | trial_<campaign>          links in posts and older site pages
+ *   t_<cid>_<campaign>                site buttons (src/lib/analytics.ts botTrialLink)
+ *   q<20 answers>_<cid>_<campaign>    level quiz result: the bot first sends the mistake breakdown
+ */
+function parseTrialPayload(payload: string): TrialOrigin | null {
+  const clean = (v: string) => v.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 50);
+  if (payload === "trial" || payload.startsWith("trial_")) return { campaign: clean(payload.slice(6)) };
+  const m = payload.match(/^(t|q[0-3]{20})_(\d*-?\d*)_(.*)$/);
+  if (!m) return null;
+  return { cid: m[2] || undefined, campaign: clean(m[3]), quiz: m[1] === "t" ? undefined : quizResult(m[1].slice(1)) };
+}
+
+function quizResult(answers: string): QuizResult {
+  const wrong = QUIZ.filter((q, k) => Number(answers[k]) !== q.answer);
+  const score = QUIZ.length - wrong.length;
+  return { level: quizLevel(score), score, topics: wrong.map((q) => q.topic) };
+}
+
+/** The reason to tap the bot on the quiz result: every mistake with its rule, then the НМТ takeaway. */
+async function sendQuizBreakdown(chatId: number, answers: string) {
+  const { level, score } = quizResult(answers);
+  const parts = [`📊 <b>Розбір твого тесту</b>\nРівень <b>${level}</b> · ${score} з ${QUIZ.length} правильних`];
+  const wrong = QUIZ.map((q, k) => ({ q, given: Number(answers[k]), n: k + 1 })).filter((x) => x.given !== x.q.answer);
+  if (wrong.length) {
+    parts.push(`❌ <b>Помилки (${wrong.length})</b>`);
+    for (const { q, given, n } of wrong) {
+      parts.push(`<b>${n}.</b> <i>${esc(q.q)}</i>\nТвоя відповідь: ${esc(q.options[given] ?? "—")} → правильно: <b>${esc(q.options[q.answer])}</b>\n💡 ${esc(q.rule)}`);
+    }
+  } else {
+    parts.push("🔥 Жодної помилки — граматика в тебе на рівні.");
+  }
+  parts.push(`🎯 <b>НМТ:</b> ${esc(LEVEL_INFO[level].nmt)}`);
+  // Many mistakes can exceed Telegram's 4096-char message limit: split on whole items.
+  let msg = "";
+  for (const part of parts) {
+    if (msg && msg.length + part.length > 3800) {
+      await sendMessage(chatId, msg);
+      msg = "";
+    }
+    msg += (msg ? "\n\n" : "") + part;
+  }
+  await sendMessage(chatId, msg);
+}
+
+async function startTrial(chatId: number, origin: TrialOrigin = {}) {
+  await setSession(chatId, "trial:name", Object.fromEntries(Object.entries(origin).filter(([, v]) => v)));
+  const intro = origin.quiz
+    ? "🎁 <b>Безкоштовний пробний урок</b>\n\nВикладач розбере ці теми разом з тобою, перевірить розмовну англійську й складе план до НМТ. Google Meet: міні-група до 4 учасників (60 хв) або індивідуально (30 хв)."
+    : "🎁 <b>Запис на безкоштовний пробний урок</b>\n\nПробний урок проходить у Google Meet у міні-групі до 4 учасників (60 хв) або індивідуально (30 хв): знайомимось, визначаємо рівень і складаємо план навчання.";
+  await sendMessage(chatId, `${intro}\n\nЯк звати учня? ✍️`, {
     reply_markup: { keyboard: [[{ text: BTN.cancel }]], resize_keyboard: true, one_time_keyboard: false },
   });
 }
@@ -274,7 +338,11 @@ async function finishTrial(chatId: number, from: Any, s: Session) {
       age_group: d.age_group ?? null,
       preferred_time: d.time ?? null,
       source: "telegram",
-      utm: d.campaign ? { ref: "bot", utm_campaign: d.campaign } : {},
+      level: d.quiz ? `${d.quiz.level} · тест на сайті ${d.quiz.score}/${QUIZ.length}` : null,
+      comment: d.quiz
+        ? `Тест рівня на сайті → бот (надіслано розбір помилок).${d.quiz.topics.length ? `\nПомилки: ${d.quiz.topics.join("; ")}` : ""}`
+        : null,
+      utm: d.campaign || d.quiz ? { ref: d.quiz ? "bot-quiz" : "bot", ...(d.campaign ? { utm_campaign: d.campaign } : {}) } : {},
       telegram_chat_id: chatId,
       telegram_username: from?.username ?? null,
     })
@@ -286,6 +354,13 @@ async function finishTrial(chatId: number, from: Any, s: Session) {
     await sendMessage(chatId, "😔 Не вдалося зберегти заявку. Спробуйте ще раз трохи пізніше.", { reply_markup: menuFor(null) });
     return;
   }
+  // The site's generate_lead only covers the web forms; bot sign-ups reach GA4 from here.
+  await gaEvent(d.cid, "generate_lead", {
+    form: d.quiz ? "telegram_bot_quiz" : "telegram_bot",
+    contact: d.phone ? "phone" : "telegram",
+    ...(d.quiz ? { level: d.quiz.level } : {}),
+    ...(d.age_group ? { age_group: d.age_group } : {}),
+  });
   await sendMessage(chatId, `🎉 <b>Дякуємо, заявку #${lead.no} прийнято!</b>\n\nМенеджер зв'яжеться з вами найближчим часом, щоб узгодити час пробного уроку. Після призначення уроку я надішлю сюди посилання на Google Meet 🦭`, {
     reply_markup: menuFor(await profileByChat(chatId)),
   });
@@ -411,7 +486,11 @@ async function onMessage(msg: Any) {
     const payload = text.split(/\s+/)[1] ?? "";
     if (payload.startsWith("link_")) return linkAccount(chatId, from, payload.slice(5));
     if (payload.startsWith("parent_")) return parentInvite(chatId, payload.slice(7));
-    if (payload === "trial" || payload.startsWith("trial_")) return startTrial(chatId, payload.slice(6).replace(/[^A-Za-z0-9_-]/g, "").slice(0, 50));
+    const origin = parseTrialPayload(payload);
+    if (origin) {
+      if (origin.quiz) await sendQuizBreakdown(chatId, payload.slice(1, 1 + QUIZ.length));
+      return startTrial(chatId, origin);
+    }
     await clearSession(chatId);
     return greet(chatId, p, from?.first_name);
   }

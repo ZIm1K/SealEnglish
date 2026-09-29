@@ -72,6 +72,7 @@ async function integrationsStatus() {
     getSecret("anthropic_api_key"),
     aiSettings(),
   ]);
+  const gaSecret = await getSecret("ga_api_secret");
   let webhook: Any = null;
   if (tgToken) webhook = (await tg("getWebhookInfo", {}))?.result ?? null;
   return {
@@ -90,6 +91,7 @@ async function integrationsStatus() {
       redirect_uri: `${functionsUrl()}/google-oauth`,
     },
     ai: { configured: !!aiKey, key_hint: aiKey ? `…${aiKey.slice(-4)}` : null, enabled: ai.enabled },
+    ga: { configured: !!gaSecret, key_hint: gaSecret ? `…${gaSecret.slice(-4)}` : null },
     site_url: await siteUrl(),
   };
 }
@@ -353,6 +355,19 @@ Deno.serve(handle(async (req) => {
       await setSecret("google_client_secret", clientSecret);
       return json({ ok: true });
     }
+
+    case "save_ga_secret": {
+      adminOnly();
+      const secret = String(input.secret ?? "").trim();
+      if (!/^[\w-]{16,}$/.test(secret)) throw new HttpError(422, "Схоже, це не API secret Measurement Protocol (GA4 → Потоки даних → Секрети API Measurement Protocol)");
+      await setSecret("ga_api_secret", secret);
+      return json({ ok: true });
+    }
+
+    case "remove_ga_secret":
+      adminOnly();
+      await setSecret("ga_api_secret", null);
+      return json({ ok: true });
 
     case "set_site_url": {
       adminOnly();
