@@ -5,7 +5,7 @@ import { supabase } from "./supabase";
 import type { AiFeatures, Assignment, Group, Lesson, Profile, Role } from "./types";
 
 export const LESSON_SELECT =
-  "*, teacher:profiles!lessons_teacher_id_fkey(id, full_name, avatar_url), student:profiles!lessons_student_id_fkey(id, full_name, avatar_url), group:groups(id, name, color), lesson_leads(lead_id, attended, lead:leads(id, name, phone, status))";
+  "*, teacher:profiles!lessons_teacher_id_fkey(id, full_name, avatar_url), substitute:profiles!lessons_substitute_for_fkey(id, full_name), student:profiles!lessons_student_id_fkey(id, full_name, avatar_url), group:groups(id, name, color), lesson_leads(lead_id, attended, lead:leads(id, name, phone, status))";
 
 export async function fetchLessons(from: Date, to: Date, opts: { teacherId?: string } = {}) {
   let q = supabase

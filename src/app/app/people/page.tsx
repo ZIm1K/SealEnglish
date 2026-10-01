@@ -7,7 +7,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   KeyRound, MoreHorizontal, Search, ShieldCheck, Trash2, UserCheck, UserPlus, UserX, Send, Check, Pencil, TrendingDown, Copy, Link2Off,
-  BellRing,
+  BellRing, GraduationCap,
 } from "lucide-react";
 import { PageHeader, EmptyState } from "@/components/app/AppShell";
 import { useMe, isStaffRole } from "@/components/app/session";
@@ -103,7 +103,7 @@ function PeopleInner() {
       ) : (
         <div className="card divide-y divide-line overflow-hidden">
           {list.map((p) => (
-            <PersonRow key={p.id} p={p} groups={groupsOf.get(p.id) ?? []} risk={riskOf.get(p.id)} editable={staff && p.id !== me.id} onCredentials={setCredentials} onOpen={p.role === "student" ? () => open(p.id) : undefined} />
+            <PersonRow key={p.id} p={p} teacher={staff && p.teacher_id ? people.find((t) => t.id === p.teacher_id)?.full_name : undefined} groups={groupsOf.get(p.id) ?? []} risk={riskOf.get(p.id)} editable={staff && p.id !== me.id} onCredentials={setCredentials} onOpen={p.role === "student" ? () => open(p.id) : undefined} />
           ))}
         </div>
       )}
@@ -120,8 +120,9 @@ function RiskBadge({ r }: { r?: RiskRow }) {
   return <Badge tone={r.score >= 60 ? "red" : "sun"} title={r.explanation ?? undefined}><TrendingDown className="size-3" /> ризик {r.score}</Badge>;
 }
 
-function PersonRow({ p, groups, risk, editable, onCredentials, onOpen }: {
+function PersonRow({ p, teacher, groups, risk, editable, onCredentials, onOpen }: {
   p: Profile;
+  teacher?: string;
   groups: string[];
   risk?: RiskRow;
   editable: boolean;
@@ -157,6 +158,7 @@ function PersonRow({ p, groups, risk, editable, onCredentials, onOpen }: {
         </div>
       </button>
       <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+        {teacher && <Badge tone="grape" title="Закріплений викладач (індивідуальні уроки)"><GraduationCap className="size-3" /> {teacher}</Badge>}
         {groups.map((g) => <Badge key={g} tone="seal">{g}</Badge>)}
         {p.telegram_chat_id ? <Badge tone="mint"><Send className="size-3" /> Telegram</Badge> : null}
         {editable && (
@@ -202,6 +204,8 @@ function EditProfileDialog({ p, onClose }: { p: Profile; onClose: () => void }) 
   const [phone, setPhone] = useState(p.phone ?? "");
   const [level, setLevel] = useState(p.level ?? "");
   const [age, setAge] = useState<AgeGroup | "">(p.age_group ?? "");
+  const [teacher, setTeacher] = useState(p.teacher_id ?? "");
+  const { data: teachers = [] } = usePeople(["teacher", "manager", "admin"]);
   const save = useMutation({
     mutationFn: async () => {
       const { error } = await supabase.from("profiles").update({
@@ -213,6 +217,9 @@ function EditProfileDialog({ p, onClose }: { p: Profile; onClose: () => void }) 
       if (error) throw error;
       if (email.trim().toLowerCase() !== (p.email ?? "")) {
         await callFunction("admin", { action: "update_user", user_id: p.id, email: email.trim().toLowerCase() });
+      }
+      if (p.role === "student" && (teacher || null) !== p.teacher_id) {
+        await callFunction("schedule", { action: "reassign", items: [{ type: "student", id: p.id, to: teacher || null }] });
       }
     },
     onSuccess: () => {
@@ -244,6 +251,12 @@ function EditProfileDialog({ p, onClose }: { p: Profile; onClose: () => void }) 
                 <Select value={age} onChange={(e) => setAge(e.target.value as AgeGroup)}>
                   <option value="">—</option>
                   {Object.entries(AGE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </Select>
+              </Field>
+              <Field label="Викладач (індивідуальні уроки)" hint={(teacher || null) !== p.teacher_id && teacher ? "майбутні уроки й ДЗ перейдуть йому" : undefined} className="sm:col-span-2">
+                <Select value={teacher} onChange={(e) => setTeacher(e.target.value)}>
+                  <option value="">Не закріплено</option>
+                  {teachers.filter((t) => t.is_active || t.id === p.teacher_id).map((t) => <option key={t.id} value={t.id}>{t.full_name}</option>)}
                 </Select>
               </Field>
             </div>

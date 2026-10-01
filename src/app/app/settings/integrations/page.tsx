@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import Link from "next/link";
-import { Activity, BarChart3, Bot, CheckCircle2, Copy, ExternalLink, Globe, Link2Off, Mic, Plug, Send, ShieldAlert, Video, CircleAlert } from "lucide-react";
+import { Activity, BarChart3, Eraser, Bot, CheckCircle2, Copy, ExternalLink, Globe, Link2Off, Mic, Plug, Send, ShieldAlert, Video, CircleAlert } from "lucide-react";
 import { PageHeader, EmptyState } from "@/components/app/AppShell";
 import { useMe } from "@/components/app/session";
 import { Button } from "@/components/ui/button";
@@ -199,6 +199,14 @@ function GoogleBlock({ st, onChange }: { st: Status; onChange: () => void }) {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const sync = useMutation({
+    mutationFn: () => callFunction<{ checked: number; removed: number; failed: number }>("schedule", { action: "sync_google" }),
+    onSuccess: (r) => toast.success(r.removed ? `Видалено зайвих зустрічей: ${r.removed}` : "Зайвих зустрічей немає", {
+      description: `Перевірено подій Seal English: ${r.checked}${r.failed ? ` · не вдалося видалити: ${r.failed} (див. «Стан системи»)` : ""}`,
+    }),
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   return (
     <Card>
       <CardHeader
@@ -215,6 +223,9 @@ function GoogleBlock({ st, onChange }: { st: Status; onChange: () => void }) {
             </div>
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" onClick={() => connect.mutate()} loading={connect.isPending}>Перепідключити</Button>
+              <Button variant="soft" onClick={() => sync.mutate()} loading={sync.isPending} title="Видаляє з календаря школи зустрічі Seal English, яких уже немає в розкладі">
+                <Eraser /> Прибрати видалені уроки з календаря
+              </Button>
               <Button variant="ghost" className="text-red-600" onClick={() => confirm("Відключити Google? Нові уроки будуть без Meet.") && disconnect.mutate()}><Link2Off /> Відключити</Button>
             </div>
           </>

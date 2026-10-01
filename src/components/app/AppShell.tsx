@@ -7,7 +7,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
 import {
   Bell, BookOpen, Bot, CalendarDays, CheckCheck, FolderOpen, Home, Inbox, LogOut, Menu as MenuIcon, MessagesSquare,
-  Settings, ShieldCheck, Users, UsersRound, Wallet, X, Plug,
+  Settings, ShieldCheck, Users, UsersRound, Wallet, X, Plug, GraduationCap,
 } from "lucide-react";
 import { Popover } from "radix-ui";
 import { formatDistanceToNow } from "date-fns";
@@ -42,6 +42,7 @@ const NAV: NavItem[] = [
   { href: "/app/materials/", label: "Матеріали", icon: FolderOpen, roles: ["student", "teacher", "manager", "admin"] },
   { href: "/app/leads/", label: "Заявки", icon: Inbox, roles: ["manager", "admin"], badge: "leads" },
   { href: "/app/groups/", label: "Групи", icon: UsersRound, roles: ["teacher", "manager", "admin"] },
+  { href: "/app/teachers/", label: "Викладачі", icon: GraduationCap, roles: ["manager", "admin"] },
   { href: "/app/people/", label: "Учні й команда", icon: Users, roles: ["teacher", "manager", "admin"] },
   { href: "/app/payouts/", label: "Оплата уроків", icon: Wallet, roles: ["teacher", "manager", "admin"] },
   { href: "/app/settings/", label: "Налаштування", icon: Settings, roles: ["student", "teacher", "manager", "admin"] },

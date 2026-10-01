@@ -16,16 +16,19 @@ import { Badge, Skeleton } from "@/components/ui/misc";
 import { callFunction, supabase } from "@/lib/supabase";
 import { useAiFeatures, useAssignments, useGroups, usePeople, targetLabel } from "@/lib/queries";
 import { fmtDate, fmtDateTime } from "@/lib/dates";
-import { SUBMISSION_STATUS, type Assignment } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { GROUP_COLORS, SUBMISSION_STATUS, type Assignment } from "@/lib/types";
+import { cn, plural } from "@/lib/utils";
 
 function HomeworkInner() {
   const me = useMe();
   const params = useSearchParams();
   const router = useRouter();
-  const teacherish = me.role === "teacher" || isStaffRole(me.role);
+  const staff = isStaffRole(me.role);
+  const teacherish = me.role === "teacher" || staff;
   const { data: all = [], isLoading } = useAssignments();
   const [tab, setTab] = useState<"active" | "done" | "all">("active");
+  const [groupFilter, setGroupFilter] = useState("");
+  const [teacherFilter, setTeacherFilter] = useState("");
   const [creating, setCreating] = useState(() => params.get("new") === "1" && teacherish);
 
   useEffect(() => {
@@ -40,13 +43,27 @@ function HomeworkInner() {
         return tab === "all" ? true : tab === "active" ? !done : done;
       });
     }
-    const mine = isStaffRole(me.role) ? all : all.filter((a) => a.teacher_id === me.id);
+    const mine = staff ? all : all.filter((a) => a.teacher_id === me.id);
     return mine.filter((a) => {
       const pending = (a.submissions ?? []).some((s) => s.status === "submitted");
       const past = a.due_at && new Date(a.due_at) < new Date();
+      if (teacherFilter && a.teacher_id !== teacherFilter) return false;
+      if (groupFilter && sectionKey(a) !== groupFilter) return false;
       return tab === "all" ? true : tab === "active" ? pending || !past : !pending && past;
     });
-  }, [all, me, tab]);
+  }, [all, me, tab, staff, groupFilter, teacherFilter]);
+
+  // Review by group: a section per group, individual students together.
+  const sections = useMemo(() => (me.role === "student" ? [] : buildSections(list)), [list, me.role]);
+  const filterOptions = useMemo(() => {
+    const scope = staff ? all.filter((a) => !teacherFilter || a.teacher_id === teacherFilter) : all.filter((a) => a.teacher_id === me.id);
+    return buildSections(scope).map((s) => ({ key: s.key, label: s.label, pending: s.pending }));
+  }, [all, staff, teacherFilter, me.id]);
+  const teacherOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const a of all) if (a.teacher) map.set(a.teacher_id, a.teacher.full_name);
+    return [...map].sort((x, y) => x[1].localeCompare(y[1], "uk"));
+  }, [all]);
 
   return (
     <div>
@@ -68,6 +85,20 @@ function HomeworkInner() {
           </>
         }
       />
+      {teacherish && (
+        <div className="mb-5 flex flex-col gap-3 sm:flex-row">
+          {staff && (
+            <Select value={teacherFilter} onChange={(e) => { setTeacherFilter(e.target.value); setGroupFilter(""); }} aria-label="Викладач" className="sm:max-w-60">
+              <option value="">Усі викладачі</option>
+              {teacherOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+            </Select>
+          )}
+          <Select value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)} aria-label="Група" className="sm:max-w-72">
+            <option value="">Усі групи й учні</option>
+            {filterOptions.map((o) => <option key={o.key} value={o.key}>{o.label}{o.pending ? ` · ${o.pending} на перевірку` : ""}</option>)}
+          </Select>
+        </div>
+      )}
       {isLoading ? (
         <div className="grid gap-3 md:grid-cols-2">{Array.from({ length: 4 }, (_, i) => <Skeleton key={i} className="h-32" />)}</div>
       ) : list.length === 0 ? (
@@ -77,14 +108,71 @@ function HomeworkInner() {
           emotion={me.role === "student" && tab === "active" ? "joy" : "neutral"}
           action={teacherish ? <Button onClick={() => setCreating(true)}><Plus /> Нове завдання</Button> : undefined}
         />
-      ) : (
+      ) : me.role === "student" ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {list.map((a) => <AssignmentCard key={a.id} a={a} />)}
+        </div>
+      ) : (
+        <div className="grid gap-8">
+          {sections.map((s) => (
+            <section key={s.key} aria-label={s.label}>
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <span className={cn("flex size-8 items-center justify-center rounded-xl", s.color.soft, s.color.text)}>
+                  {s.individual ? <UserRound className="size-4" /> : <Users className="size-4" />}
+                </span>
+                <h2 className="font-display text-lg font-semibold text-ocean-900">{s.label}</h2>
+                {staff && s.teachers.length > 0 && <span className="text-sm text-mute">· {s.teachers.join(", ")}</span>}
+                <span className="text-sm text-mute">· {s.items.length} {plural(s.items.length, "завдання", "завдання", "завдань")}</span>
+                {s.pending > 0 && <Badge tone="coral">{s.pending} на перевірку</Badge>}
+              </div>
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {s.items.map((a) => <AssignmentCard key={a.id} a={a} />)}
+              </div>
+            </section>
+          ))}
         </div>
       )}
       {teacherish && <NewAssignmentDialog open={creating} onOpenChange={setCreating} />}
     </div>
   );
+}
+
+const sectionKey = (a: Assignment) => (a.group_id ? `g:${a.group_id}` : "individual");
+
+interface Section {
+  key: string;
+  label: string;
+  individual: boolean;
+  color: (typeof GROUP_COLORS)[string];
+  teachers: string[];
+  pending: number;
+  items: Assignment[];
+}
+
+/** Groups first (most work to review on top), then individual students. */
+function buildSections(list: Assignment[]): Section[] {
+  const map = new Map<string, Section>();
+  for (const a of list) {
+    const key = sectionKey(a);
+    let s = map.get(key);
+    if (!s) {
+      s = {
+        key,
+        label: a.group ? a.group.name : "Індивідуальні учні",
+        individual: !a.group_id,
+        color: GROUP_COLORS[a.group?.color ?? "ink"] ?? GROUP_COLORS.sky,
+        teachers: [],
+        pending: 0,
+        items: [],
+      };
+      map.set(key, s);
+    }
+    s.items.push(a);
+    s.pending += (a.submissions ?? []).filter((x) => x.status === "submitted").length;
+    if (a.teacher && !s.teachers.includes(a.teacher.full_name)) s.teachers.push(a.teacher.full_name);
+  }
+  return [...map.values()].sort((x, y) =>
+    Number(x.individual) - Number(y.individual) || y.pending - x.pending || x.label.localeCompare(y.label, "uk"));
 }
 
 function AssignmentCard({ a }: { a: Assignment }) {
@@ -148,6 +236,9 @@ function NewAssignmentForm({ onDone }: { onDone: () => void }) {
   const { data: ai } = useAiFeatures();
 
   const myGroups = staff ? groups : groups.filter((g) => g.teacher_id === me.id);
+  // Homework belongs to the assigned teacher (who reviews it); a manager creates it on their behalf.
+  const assigned = type === "group" ? groups.find((g) => g.id === target)?.teacher_id : students.find((s) => s.id === target)?.teacher_id;
+  const ownerId = staff && assigned ? assigned : me.id;
 
   const create = useMutation({
     mutationFn: async () => {
@@ -158,7 +249,7 @@ function NewAssignmentForm({ onDone }: { onDone: () => void }) {
         .insert({
           title: title.trim(),
           description: description.trim() || null,
-          teacher_id: me.id,
+          teacher_id: ownerId,
           group_id: type === "group" ? target : null,
           student_id: type === "student" ? target : null,
           due_at: due ? new Date(due).toISOString() : null,

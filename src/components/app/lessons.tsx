@@ -129,6 +129,7 @@ export function LessonRow({ lesson, onClick, showTeacher }: { lesson: Lesson; on
             {lesson.title ?? (lesson.kind === "trial" ? "Пробний урок" : "Урок англійської")}
           </span>
           {lesson.kind === "trial" && <Badge tone="coral">Пробний{(lesson.lesson_leads?.length ?? 0) > 1 ? ` · ${lesson.lesson_leads!.length}` : ""}</Badge>}
+          {lesson.substitute_for && st !== "cancelled" && <Badge tone="grape" title={lesson.substitute ? `Замість ${lesson.substitute.full_name}` : undefined}>Заміна</Badge>}
           {st === "live" && <Badge tone="mint">Зараз</Badge>}
           {st === "cancelled" && <Badge tone="gray">Скасовано</Badge>}
         </div>
@@ -284,8 +285,11 @@ function NewLessonForm({ defaultDate, onDone }: { defaultDate?: Date; onDone: ()
             value={targetId}
             onChange={(e) => {
               setTargetId(e.target.value);
-              const g = targetType === "group" ? groups.find((x) => x.id === e.target.value) : null;
-              if (staff && g?.teacher_id) setTeacherId(g.teacher_id);
+              // Default to the assigned teacher of the group / student.
+              const assigned = targetType === "group"
+                ? groups.find((x) => x.id === e.target.value)?.teacher_id
+                : students.find((x) => x.id === e.target.value)?.teacher_id;
+              if (staff && assigned) setTeacherId(assigned);
             }}
             required
           >
@@ -582,7 +586,11 @@ function LessonDetails({ lesson, onClose }: { lesson: Lesson; onClose: () => voi
         {lesson.teacher && (
           <div className="flex items-center gap-2.5">
             <Avatar name={lesson.teacher.full_name} src={lesson.teacher.avatar_url} size={34} />
-            <div className="text-sm"><div className="text-xs text-mute">Викладач</div><div className="font-semibold">{lesson.teacher.full_name}</div></div>
+            <div className="text-sm">
+              <div className="text-xs text-mute">{lesson.substitute_for ? "Викладач на заміні" : "Викладач"}</div>
+              <div className="font-semibold">{lesson.teacher.full_name}</div>
+              {lesson.substitute && <div className="text-xs text-mute">замість {lesson.substitute.full_name}</div>}
+            </div>
           </div>
         )}
         <div className="min-w-0 text-sm">
@@ -665,7 +673,7 @@ function LessonDetails({ lesson, onClose }: { lesson: Lesson; onClose: () => voi
                 </Select>
               </Field>
               {staff && (
-                <Field label="Викладач" className="sm:col-span-3">
+                <Field label="Викладач" hint="інший викладач = заміна на ці уроки" className="sm:col-span-3">
                   <Select value={teacherId} onChange={(e) => setTeacherId(e.target.value)}>
                     {!teachers.some((t) => t.id === lesson.teacher_id) && <option value={lesson.teacher_id}>{lesson.teacher?.full_name ?? "Поточний викладач"}</option>}
                     {teachers.filter((t) => t.is_active || t.id === lesson.teacher_id).map((t) => <option key={t.id} value={t.id}>{t.full_name}</option>)}

@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/overlay";
 import { Checkbox, Field, Input, Select, Textarea } from "@/components/ui/form";
 import { Avatar, Badge, Skeleton } from "@/components/ui/misc";
-import { supabase } from "@/lib/supabase";
+import { callFunction, supabase } from "@/lib/supabase";
 import { useGroups, usePeople } from "@/lib/queries";
 import { AGE_LABEL, GROUP_COLORS, LEVELS, type AgeGroup, type Group } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -125,13 +125,27 @@ function GroupDialog({ group, onClose }: { group: Group | null; onClose: () => v
 
   const save = useMutation({
     mutationFn: async () => {
-      const row = { name: name.trim(), level: level || null, age_group: age || null, teacher_id: teacher || null, color, schedule_note: note || null, description: description || null };
-      const { error } = group ? await supabase.from("groups").update(row).eq("id", group.id) : await supabase.from("groups").insert(row);
+      const row = { name: name.trim(), level: level || null, age_group: age || null, color, schedule_note: note || null, description: description || null };
+      if (!group) {
+        const { error } = await supabase.from("groups").insert({ ...row, teacher_id: teacher || null });
+        if (error) throw error;
+        return null;
+      }
+      const { error } = await supabase.from("groups").update(row).eq("id", group.id);
       if (error) throw error;
+      // A new teacher takes over the group's future lessons and homework (server side, with Google Meet guests).
+      if ((teacher || null) !== group.teacher_id) {
+        return callFunction<{ lessons: number; homework: number }>("schedule", { action: "reassign", items: [{ type: "group", id: group.id, to: teacher || null }] });
+      }
+      return null;
     },
-    onSuccess: () => {
-      toast.success(group ? "Групу оновлено" : "Групу створено");
+    onSuccess: (r) => {
+      toast.success(group ? "Групу оновлено" : "Групу створено", {
+        description: r && (r.lessons || r.homework) ? `Новому викладачу передано уроків: ${r.lessons}, ДЗ: ${r.homework}` : undefined,
+      });
       qc.invalidateQueries({ queryKey: ["groups"] });
+      qc.invalidateQueries({ queryKey: ["lessons"] });
+      qc.invalidateQueries({ queryKey: ["assignments"] });
       onClose();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -168,7 +182,7 @@ function GroupDialog({ group, onClose }: { group: Group | null; onClose: () => v
               </Select>
             </Field>
           </div>
-          <Field label="Викладач">
+          <Field label="Викладач" hint={group && (teacher || null) !== group.teacher_id && teacher ? "майбутні уроки й ДЗ групи перейдуть новому викладачу" : undefined}>
             <Select value={teacher} onChange={(e) => setTeacher(e.target.value)}>
               <option value="">Не призначено</option>
               {teachers.filter((t) => t.is_active).map((t) => <option key={t.id} value={t.id}>{t.full_name}</option>)}

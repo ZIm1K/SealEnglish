@@ -1,6 +1,7 @@
 import { getSecret, logError, TZ } from "./core.ts";
 
 const CAL = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
+const SEAL_TAG = "seal_lesson";
 
 let cachedToken: { token: string; exp: number } | null = null;
 
@@ -68,6 +69,8 @@ function eventBody(input: MeetEventInput) {
     attendees,
     guestsCanSeeOtherGuests: false,
     reminders: { useDefault: false, overrides: [{ method: "popup", minutes: 15 }] },
+    // Tag: lets the cleanup sweep tell Seal lessons apart from the account's own events.
+    extendedProperties: { private: { [SEAL_TAG]: "1" } },
     conferenceData: input.conferenceData ?? {
       createRequest: { requestId: crypto.randomUUID(), conferenceSolutionKey: { type: "hangoutsMeet" } },
     },
@@ -124,10 +127,66 @@ export async function addEventAttendees(eventId: string, emails: string[], notif
   await gfetch(`${CAL}/${eventId}?${params}`, { method: "PATCH", body: JSON.stringify({ attendees: merged }) });
 }
 
+/** Deletes an event. Already gone (404/410) counts as success; any other failure throws so the caller can retry. */
 export async function deleteMeetEvent(eventId: string, notify = false): Promise<void> {
   const params = new URLSearchParams({ sendUpdates: notify ? "all" : "none" });
-  const res = await gfetch(`${CAL}/${eventId}?${params}`, { method: "DELETE" });
+  const res = await gfetch(`${CAL}/${encodeURIComponent(eventId)}?${params}`, { method: "DELETE" });
   if (!res.ok && res.status !== 404 && res.status !== 410) {
-    console.error("google delete failed", res.status, await res.text());
+    const data = await res.json().catch(() => ({}));
+    throw new Error(`Google Calendar delete ${res.status}: ${data?.error?.message ?? ""}`.trim());
   }
+}
+
+/** Substitution / handover: the new teacher replaces the old one among the guests. */
+export async function swapEventAttendee(eventId: string, oldEmail: string | null, newEmail: string | null, notify = false): Promise<void> {
+  const res = await gfetch(`${CAL}/${encodeURIComponent(eventId)}`, { method: "GET" });
+  if (res.status === 404 || res.status === 410) return;
+  if (!res.ok) throw new Error(`Google Calendar: ${res.status}`);
+  const ev = await res.json();
+  const norm = (e?: string | null) => (e ?? "").trim().toLowerCase();
+  const current: { email: string }[] = ev.attendees ?? [];
+  const kept = current.filter((a) => !oldEmail || norm(a.email) !== norm(oldEmail));
+  if (newEmail?.includes("@") && !kept.some((a) => norm(a.email) === norm(newEmail))) kept.push({ email: newEmail });
+  if (kept.length === current.length && kept.every((a, i) => a === current[i])) return;
+  const params = new URLSearchParams({ sendUpdates: notify ? "all" : "none" });
+  const patch = await gfetch(`${CAL}/${encodeURIComponent(eventId)}?${params}`, { method: "PATCH", body: JSON.stringify({ attendees: kept }) });
+  if (!patch.ok) throw new Error(`Google Calendar: ${patch.status}`);
+}
+
+export interface SealEvent {
+  id: string;
+  summary: string;
+  start: string | null;
+  created: string | null;
+}
+
+/**
+ * Upcoming events in the school calendar created by the platform: tagged ones, plus older untagged
+ * events recognised by the description the platform always wrote ("Seal English · …"). Only events
+ * the school account organizes are returned.
+ */
+export async function listSealEvents(from: Date): Promise<SealEvent[]> {
+  const found = new Map<string, SealEvent>();
+  const queries: Record<string, string>[] = [{ privateExtendedProperty: `${SEAL_TAG}=1` }, { q: "Seal English" }];
+  for (const extra of queries) {
+    let pageToken: string | undefined;
+    for (let page = 0; page < 20; page++) {
+      const params = new URLSearchParams({ timeMin: from.toISOString(), singleEvents: "true", maxResults: "250", showDeleted: "false", ...extra });
+      if (pageToken) params.set("pageToken", pageToken);
+      const res = await gfetch(`${CAL}?${params}`, { method: "GET" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(`Google Calendar list: ${data?.error?.message ?? res.status}`);
+      // deno-lint-ignore no-explicit-any
+      for (const e of (data.items ?? []) as any[]) {
+        if (e.status === "cancelled" || e.organizer?.self === false) continue;
+        const tagged = e.extendedProperties?.private?.[SEAL_TAG] === "1";
+        const legacy = typeof e.description === "string" && e.description.startsWith("Seal English ·");
+        if (!tagged && !legacy) continue;
+        found.set(e.id, { id: e.id, summary: e.summary ?? "", start: e.start?.dateTime ?? e.start?.date ?? null, created: e.created ?? null });
+      }
+      pageToken = data.nextPageToken;
+      if (!pageToken) break;
+    }
+  }
+  return [...found.values()];
 }

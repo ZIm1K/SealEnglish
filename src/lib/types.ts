@@ -23,6 +23,8 @@ export interface Profile {
   telegram_username: string | null;
   notify_telegram: boolean;
   is_active: boolean;
+  /** assigned teacher for individual lessons (students) */
+  teacher_id: string | null;
   created_at: string;
 }
 
@@ -58,7 +60,10 @@ export interface Lesson {
   google_event_id: string | null;
   series_id: string | null;
   teacher_notes: string | null;
+  /** the assigned teacher replaced on this lesson (substitution) */
+  substitute_for: string | null;
   teacher?: ProfileLite | null;
+  substitute?: Pick<ProfileLite, "id" | "full_name"> | null;
   student?: ProfileLite | null;
   group?: Pick<Group, "id" | "name" | "color"> | null;
   lesson_leads?: LessonLead[];
