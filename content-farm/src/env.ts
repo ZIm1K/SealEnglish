@@ -59,6 +59,8 @@ export async function secret(name: keyof typeof SECRETS): Promise<string | null>
 export interface FarmSettings {
   /** Main LLM for ideas and scripts. */
   model: string;
+  /** Model for the humanizer/editor pass (billed at research_* rates — same Sonnet tier). */
+  edit_model: string;
   /** Second "editor" pass that strips AI clichés from all user-facing text. */
   humanize: boolean;
   /** Model for the web-search research steps (search results are token-heavy, so a cheaper model). */
@@ -116,6 +118,7 @@ export const DEFAULT_SETTINGS: FarmSettings = {
   model: "claude-opus-5-5",
   research_model: "claude-sonnet-5-5",
   humanize: true,
+  edit_model: "claude-sonnet-5-5",
   max_usd_per_video: 1,
   max_usd_per_text: 0.08,
   videos_per_run: 2,

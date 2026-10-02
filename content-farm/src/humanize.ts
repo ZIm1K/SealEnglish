@@ -33,6 +33,7 @@ export async function humanize<S extends z.ZodType>(s: FarmSettings, budget: Bud
       s,
       budget,
       what: `humanize_${what}`,
+      cheap: true,
       schema,
       effort: "low",
       system: SYSTEM,

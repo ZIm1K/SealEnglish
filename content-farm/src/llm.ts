@@ -58,6 +58,8 @@ export async function structured<S extends z.ZodType>(opts: {
   prompt: string;
   schema: S;
   effort?: "low" | "medium" | "high";
+  /** Use the cheaper editing model (settings.edit_model, billed at its own rates). */
+  cheap?: boolean;
   /** Optional images (JPEG/PNG/WebP) sent before the prompt, e.g. to locate things on a frame. */
   images?: { media_type: "image/jpeg" | "image/png" | "image/webp"; data: string }[];
 }): Promise<z.infer<S>> {
@@ -71,13 +73,13 @@ export async function structured<S extends z.ZodType>(opts: {
     // create + own validation (not .parse) so a schema miss is billed and retried, not thrown blind.
     const msg = await c.beta.messages.create({
       ...FALLBACK,
-      model: opts.s.model,
+      model: opts.cheap ? opts.s.edit_model : opts.s.model,
       max_tokens: 16000,
       output_config: { effort: opts.effort ?? "medium", format },
       system: [{ type: "text", text: opts.system, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content }],
     });
-    charge(opts.budget, opts.s, opts.what, msg.usage);
+    charge(opts.budget, opts.s, opts.what, msg.usage, opts.cheap);
     assertNotRefused(msg, opts.what);
     const text = msg.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
     let problem: string;
