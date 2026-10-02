@@ -8,6 +8,7 @@ import { AnimatePresence, motion } from "motion/react";
 import {
   Bell, BookOpen, Bot, CalendarDays, CheckCheck, FolderOpen, Home, Inbox, LogOut, Menu as MenuIcon, MessagesSquare,
   Settings, ShieldCheck, Users, UsersRound, Wallet, X, Plug, GraduationCap,
+  Clapperboard,
 } from "lucide-react";
 import { Popover } from "radix-ui";
 import { formatDistanceToNow } from "date-fns";
@@ -46,6 +47,7 @@ const NAV: NavItem[] = [
   { href: "/app/people/", label: "Учні й команда", icon: Users, roles: ["teacher", "manager", "admin"] },
   { href: "/app/payouts/", label: "Оплата уроків", icon: Wallet, roles: ["teacher", "manager", "admin"] },
   { href: "/app/settings/", label: "Налаштування", icon: Settings, roles: ["student", "teacher", "manager", "admin"] },
+  { href: "/app/content/", label: "Контент-ферма", icon: Clapperboard, roles: ["admin"] },
   { href: "/app/ai/", label: "ШІ-модуль", icon: Bot, roles: ["admin"] },
   { href: "/app/settings/integrations/", label: "Інтеграції", icon: Plug, roles: ["admin"] },
 ];

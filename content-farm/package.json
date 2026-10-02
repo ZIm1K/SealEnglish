@@ -1,0 +1,31 @@
+{
+  "name": "seal-content-farm",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "farm": "tsx src/cli.ts",
+    "daily": "tsx src/cli.ts daily",
+    "demo": "tsx src/cli.ts demo",
+    "studio": "remotion studio remotion/index.ts --public-dir=.work/public",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
+    "@remotion/bundler": "^4.0.532",
+    "@remotion/cli": "^4.0.532",
+    "@remotion/google-fonts": "^4.0.532",
+    "@remotion/renderer": "^4.0.532",
+    "@supabase/supabase-js": "^2.117.2",
+    "msedge-tts": "^2.0.8",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "remotion": "^4.0.532",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.1",
+    "@types/react": "^19.3.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  }
+}
