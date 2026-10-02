@@ -99,7 +99,9 @@ ${opts.topic ? `\n## Побажання власника на цей запус�
 - Відкидай усе, що порушує заборони бренду, навіть якщо це дуже вірусно.
 - Ідея має бути смішною/цікавою людині без знання англійської: гумор із ситуації та реакції. Гра англійських слів — лише якщо її миттєво пояснено українською в самому ролику.`,
   });
-  return ideas.sort((a, b) => ideaScore(b) - ideaScore(a));
+  // Drop malformed ideas (truncated titles, empty fields) the model occasionally appends.
+  const valid = ideas.filter((i) => i.title.trim().length >= 10 && i.trend.trim().length >= 5 && i.bridge.trim().length >= 5);
+  return valid.sort((a, b) => ideaScore(b) - ideaScore(a));
 }
 
 export const ideaScore = (i: Idea) =>

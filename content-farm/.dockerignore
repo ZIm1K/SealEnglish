@@ -1,0 +1,6 @@
+node_modules
+.work
+out
+logs
+.env
+*.log

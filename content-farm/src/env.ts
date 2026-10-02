@@ -8,6 +8,10 @@ import { fileURLToPath } from "node:url";
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const REPO_ROOT = path.resolve(ROOT, "..");
 export const WORK = path.join(ROOT, ".work");
+/** Sílі's 3D renders: the site's public/mascot3d locally, a copy baked into the image in the cloud. */
+export const MASCOT_DIR = fs.existsSync(path.join(ROOT, "assets", "mascot3d"))
+  ? path.join(ROOT, "assets", "mascot3d")
+  : path.join(REPO_ROOT, "public", "mascot3d");
 
 // Minimal .env loader (content-farm/.env) — no extra dependency.
 const envFile = path.join(ROOT, ".env");

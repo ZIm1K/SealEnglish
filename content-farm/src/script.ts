@@ -3,7 +3,23 @@ import { BRAND_BIBLE, HANDLES, HUMAN_VOICE } from "./brand.ts";
 import type { FarmSettings } from "./env.ts";
 import { humanize } from "./humanize.ts";
 import { structured, type Budget } from "./llm.ts";
-import { ScriptSchema, StorySchema, TextPostSchema, type Idea, type Script, type Story, type TextPost } from "./schema.ts";
+import {
+  InstagramPostSchema,
+  PostsBundleSchema,
+  ScriptSchema,
+  StorySchema,
+  TelegramPostSchema,
+  TextPostSchema,
+  ThreadsPostSchema,
+  type Idea,
+  type InstagramPost,
+  type PostsBundle,
+  type Script,
+  type Story,
+  type TelegramPost,
+  type TextPost,
+  type ThreadsPost,
+} from "./schema.ts";
 
 const SYSTEM = `Ти — сценарист вертикальних коротких відео (TikTok/Reels, 20–40 секунд) для бренду нижче.
 Пишеш так, щоб утримання було максимальним: хук за 1 секунду, кожна сцена додає новизну, панчлайн/відповідь ближче до кінця, CTA коротко.
@@ -166,18 +182,28 @@ export function normalizeStory(story: Story): Story {
   return { ...story, locations, beats, music_mood: mood, hashtags: story.hashtags.map((h) => h.replace(/^#/, "").replace(/\s+/g, "")) };
 }
 
-export type AnyScript = { kind: "story"; data: Story } | { kind: "edu"; data: Script } | { kind: "text"; data: TextPost };
+export type AnyScript =
+  | { kind: "story"; data: Story }
+  | { kind: "edu"; data: Script }
+  | { kind: "text"; data: TextPost }
+  | { kind: "threads"; data: ThreadsPost }
+  | { kind: "telegram"; data: TelegramPost }
+  | { kind: "instagram"; data: InstagramPost };
 
-/** Recognizes which script shape a stored item holds. */
+/** Recognizes which script shape a stored item holds (channel posts carry a `channel` tag). */
 export function detectScript(raw: Record<string, unknown>): AnyScript {
-  if (Array.isArray(raw.beats)) return { kind: "story", data: raw as unknown as Story };
-  if (Array.isArray(raw.scenes)) return { kind: "edu", data: raw as unknown as Script };
-  return { kind: "text", data: raw as unknown as TextPost };
+  const { channel, ...rest } = raw;
+  if (channel === "threads") return { kind: "threads", data: rest as unknown as ThreadsPost };
+  if (channel === "telegram") return { kind: "telegram", data: rest as unknown as TelegramPost };
+  if (channel === "instagram") return { kind: "instagram", data: rest as unknown as InstagramPost };
+  if (Array.isArray(raw.beats)) return { kind: "story", data: rest as unknown as Story };
+  if (Array.isArray(raw.scenes)) return { kind: "edu", data: rest as unknown as Script };
+  return { kind: "text", data: rest as unknown as TextPost };
 }
 
 /** Owner asked for changes in the cabinet: rewrite the script following their note, keep the rest. */
 export async function rewriteWithNote(s: FarmSettings, budget: Budget, script: AnyScript, note: string): Promise<AnyScript> {
-  const system = `${script.kind === "story" ? STORY_SYSTEM : script.kind === "edu" ? SYSTEM : `Ти — SMM-автор бренду.\n\n${BRAND_BIBLE}\n\n${HUMAN_VOICE}`}
+  const system = `${script.kind === "story" ? STORY_SYSTEM : script.kind === "edu" ? SYSTEM : POSTS_SYSTEM}
 
 ## Режим правки
 Власник школи переглянув цей матеріал і залишив коментар. Виконай коментар точно і повністю. Усе, про що коментар
@@ -191,6 +217,34 @@ export async function rewriteWithNote(s: FarmSettings, budget: Budget, script: A
     const data = await structured({ s, budget, what: "rewrite_script", schema: ScriptSchema, effort: "medium", system, prompt });
     return { kind: "edu", data: normalizeScript(data) };
   }
-  const data = await structured({ s, budget, what: "rewrite_text", schema: TextPostSchema, effort: "low", system, prompt });
-  return { kind: "text", data };
+  const schemas = { threads: ThreadsPostSchema, telegram: TelegramPostSchema, instagram: InstagramPostSchema, text: TextPostSchema } as const;
+  const data = await structured({ s, budget, what: `rewrite_${script.kind}`, schema: schemas[script.kind], effort: "low", system, prompt });
+  return { kind: script.kind, data } as AnyScript;
+}
+
+const POSTS_SYSTEM = `Ти — SMM-автор бренду нижче. Пишеш нативні пости під кожну мережу — не копію одного тексту.
+
+${BRAND_BIBLE}
+
+${HUMAN_VOICE}
+
+## Формати
+- Threads: лише текст. Як думка людини вголос: коротко, з характером, без емодзі-списків, закінчується питанням або
+  спірною тезою, на яку хочеться відповісти. Без хештегів.
+- Telegram: пост каналу школи. Заголовок-гачок першим рядком, далі користь (історія / розбір / 3–5 фраз з прикладами),
+  наприкінці м'який CTA (${HANDLES.bot} або пробний урок). До картинки — image_prompt: ілюстрація настрою поста.
+- Instagram: упор на картинку. На картинці — великий хук (image_headline) і, за потреби, англ. фраза з перекладом
+  (image_sub); фон — image_prompt. Під фото — допис, що розгортає думку, з прикладами і питанням до коментарів.
+- Три пости — на ТРИ різні теми з трьох ідей (по одній на мережу), кожна ідея — у найкращій для неї мережі.`;
+
+export async function writePostsBundle(s: FarmSettings, budget: Budget, ideas: Idea[]): Promise<PostsBundle> {
+  const draft = await structured({
+    s,
+    budget,
+    what: "posts",
+    schema: PostsBundleSchema,
+    system: POSTS_SYSTEM,
+    prompt: `Ідеї для постів (обери, яка куди пасує найкраще):\n${JSON.stringify(ideas, null, 2)}`,
+  });
+  return humanize(s, budget, PostsBundleSchema, draft, "posts");
 }

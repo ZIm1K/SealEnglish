@@ -2,11 +2,12 @@
 import { bundle } from "@remotion/bundler";
 import { renderMedia, renderStill, selectComposition } from "@remotion/renderer";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { REPO_ROOT, ROOT, WORK } from "./env.ts";
+import { MASCOT_DIR, ROOT, WORK } from "./env.ts";
 import { ensureMusic } from "./media/music.ts";
 import { ensureSfx } from "./media/sfx.ts";
-import type { RenderProps, StoryProps } from "./schema.ts";
+import type { IgCardProps, RenderProps, StoryProps } from "./schema.ts";
 
 export const PUBLIC = path.join(WORK, "public");
 
@@ -14,7 +15,7 @@ export const PUBLIC = path.join(WORK, "public");
 export function preparePublic() {
   fs.mkdirSync(PUBLIC, { recursive: true });
   const mascotDst = path.join(PUBLIC, "mascot3d");
-  if (!fs.existsSync(mascotDst)) fs.cpSync(path.join(REPO_ROOT, "public", "mascot3d"), mascotDst, { recursive: true });
+  if (!fs.existsSync(mascotDst)) fs.cpSync(MASCOT_DIR, mascotDst, { recursive: true });
   ensureSfx(path.join(PUBLIC, "sfx"));
   const musicSrc = path.join(ROOT, "assets", "music");
   const musicDst = path.join(PUBLIC, "music");
@@ -63,6 +64,8 @@ export async function renderVideo(serveUrl: string, props: RenderProps | StoryPr
     codec: "h264",
     crf: 20,
     audioCodec: "aac",
+    // Remotion defaults to half the cores; use all of them (Cloud Run gives 2 vCPU).
+    concurrency: os.cpus().length,
     outputLocation: video,
     inputProps: props,
     onProgress: ({ progress }) => {
@@ -79,4 +82,10 @@ export async function renderVideo(serveUrl: string, props: RenderProps | StoryPr
   const coverFrame = Math.min(composition.durationInFrames - 1, Math.round(first * props.fps) - 2);
   await renderStill({ composition, serveUrl, output: cover, inputProps: props, frame: Math.max(0, coverFrame), imageFormat: "jpeg", jpegQuality: 88 });
   return { video, cover, seconds: composition.durationInFrames / composition.fps };
+}
+
+/** Instagram feed card (4:5 JPEG). */
+export async function renderIgCard(serveUrl: string, props: IgCardProps, outFile: string) {
+  const composition = await selectComposition({ serveUrl, id: "IgCard", inputProps: props });
+  await renderStill({ composition, serveUrl, output: outFile, inputProps: props, frame: 0, imageFormat: "jpeg", jpegQuality: 92 });
 }

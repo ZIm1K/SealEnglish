@@ -2,7 +2,7 @@
 // generation that keeps Sílі on-model in any scene.
 import fs from "node:fs";
 import path from "node:path";
-import { REPO_ROOT, secret, type FarmSettings } from "../env.ts";
+import { MASCOT_DIR, secret, type FarmSettings } from "../env.ts";
 import type { Budget } from "../llm.ts";
 
 const ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/interactions";
@@ -108,7 +108,7 @@ export async function drawGemini(
   const input: Record<string, unknown>[] = [{ type: "text", text: prompt }];
   if (withSeal) {
     for (const f of SEAL_REFS) {
-      const p = path.join(REPO_ROOT, "public", "mascot3d", f);
+      const p = path.join(MASCOT_DIR, f);
       if (fs.existsSync(p)) input.push({ type: "image", mime_type: "image/webp", data: fs.readFileSync(p).toString("base64") });
     }
   }

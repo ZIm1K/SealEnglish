@@ -15,11 +15,13 @@ import { Badge, Card, Skeleton } from "@/components/ui/misc";
 import { Dialog, DialogContent } from "@/components/ui/overlay";
 import { supabase } from "@/lib/supabase";
 import { fmtDateTime } from "@/lib/dates";
-import { CaptionsEditor, EduEditor, isEdu, isStory, StoryEditor, TextEditor, type ScriptJson, type TextPost } from "@/components/app/content-editor";
+import { CaptionsEditor, CHANNEL_LABEL, ChannelPostEditor, EduEditor, isChannelPost, isEdu, isStory, StoryEditor, TextEditor, type ScriptJson, type TextPost } from "@/components/app/content-editor";
 
 interface Item {
   id: string;
   kind: "video" | "text";
+  pack_id: string | null;
+  channel: string | null;
   status: string;
   title: string;
   script: ScriptJson;
@@ -68,6 +70,21 @@ function ContentInner() {
   return id ? <Editor id={id} /> : <ItemList />;
 }
 
+const CHANNEL_ORDER = ["tiktok", "stories", "threads", "telegram", "instagram"];
+
+/** Items of one pack stay together (in channel order); items without a pack form their own groups. */
+function groupByPack(items: Item[]) {
+  const groups: { key: string; packed: boolean; items: Item[] }[] = [];
+  for (const it of items) {
+    const key = it.pack_id ?? it.id;
+    const g = groups.find((x) => x.key === key);
+    if (g) g.items.push(it);
+    else groups.push({ key, packed: !!it.pack_id, items: [it] });
+  }
+  for (const g of groups) g.items.sort((a, b) => CHANNEL_ORDER.indexOf(a.channel ?? "") - CHANNEL_ORDER.indexOf(b.channel ?? ""));
+  return groups.map((g) => ({ ...g, packed: g.packed && g.items.length > 1 }));
+}
+
 function ItemList() {
   const [tab, setTab] = useState<Tab>("todo");
   const { data: items = [], isLoading } = useQuery({
@@ -76,7 +93,7 @@ function ItemList() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("content_items")
-        .select("id, kind, status, title, script, video_path, cover_path, image_path, duration_s, cost_usd, review_note, created_at, updated_at")
+        .select("id, kind, pack_id, channel, status, title, script, video_path, cover_path, image_path, duration_s, cost_usd, review_note, created_at, updated_at")
         .order("created_at", { ascending: false })
         .limit(150);
       if (error) throw error;
@@ -93,7 +110,7 @@ function ItemList() {
     <>
       <PageHeader
         title="Контент-ферма"
-        description="Сценарії від ШІ чекають вашого затвердження. Після «Затвердити» ферма сама озвучить, згенерує фони й відрендерить відео (до 15 хв)."
+        description="Раз на 2 дні ферма готує пакет: історія для TikTok, навчальне відео для Stories, пости Threads, Telegram та Instagram. Відредагуйте й затвердіть — хмара згенерує медіа (до 30 хв)."
       />
       <Segmented
         className="mb-5"
@@ -105,32 +122,43 @@ function ItemList() {
       {isLoading ? (
         <div className="grid gap-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-24" />)}</div>
       ) : shown.length === 0 ? (
-        <EmptyState title="Тут порожньо" text={tab === "todo" ? "Нові сценарії з'являються щодня після зрізу трендів." : undefined} emotion="happy" />
+        <EmptyState title="Тут порожньо" text={tab === "todo" ? "Новий пакет з'являється раз на 2 дні о 09:00." : undefined} emotion="happy" />
       ) : (
-        <div className="grid gap-3">
-          {shown.map((it) => {
-            const st = STATUS[it.status] ?? { label: it.status, tone: "gray" as const };
-            const cover = publicUrl(it.cover_path ?? it.image_path);
-            const fmt = it.kind === "text" ? "Текстовий пост" : isStory(it.script) ? "Історія" : "Навчальний ролик";
-            return (
-              <Link key={it.id} href={`/app/content/?id=${it.id}`} className="card flex items-center gap-4 p-4 transition hover:shadow-lift">
-                <div className="grid h-20 w-12 shrink-0 place-items-center overflow-hidden rounded-xl bg-seal-50">
-                  {cover ? <img src={cover} alt="" className="h-full w-full object-cover" /> : it.kind === "text" ? <FileText className="size-5 text-seal-500" /> : <Clapperboard className="size-5 text-seal-500" />}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge tone={st.tone}>{st.label}</Badge>
-                    <Badge tone="gray">{fmt}</Badge>
-                    {it.duration_s && <span className="text-xs text-mute">{Math.round(it.duration_s)} с</span>}
-                  </div>
-                  <div className="mt-1 truncate font-semibold text-ink">{it.title}</div>
-                  <div className="text-xs text-mute">
-                    {fmtDateTime(it.created_at)} · ${Number(it.cost_usd).toFixed(2)}
-                  </div>
-                </div>
-              </Link>
-            );
-          })}
+        <div className="grid gap-6">
+          {groupByPack(shown).map((group) => (
+            <section key={group.key}>
+              {group.packed && (
+                <h2 className="mb-2 text-sm font-semibold text-ink-soft">
+                  📦 Пакет від {fmtDateTime(group.items[group.items.length - 1].created_at)} · {group.items.length} матеріалів
+                </h2>
+              )}
+              <div className="grid gap-3">
+                {group.items.map((it) => {
+                  const st = STATUS[it.status] ?? { label: it.status, tone: "gray" as const };
+                  const cover = publicUrl(it.cover_path ?? it.image_path);
+                  const fmt = it.channel ? CHANNEL_LABEL[it.channel] : it.kind === "text" ? "Текстовий пост" : isStory(it.script) ? "Історія" : "Навчальний ролик";
+                  return (
+                    <Link key={it.id} href={`/app/content/?id=${it.id}`} className="card flex items-center gap-4 p-4 transition hover:shadow-lift">
+                      <div className="grid h-20 w-12 shrink-0 place-items-center overflow-hidden rounded-xl bg-seal-50">
+                        {cover ? <img src={cover} alt="" className="h-full w-full object-cover" /> : it.kind === "text" ? <FileText className="size-5 text-seal-500" /> : <Clapperboard className="size-5 text-seal-500" />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge tone={st.tone}>{st.label}</Badge>
+                          <Badge tone="gray">{fmt}</Badge>
+                          {it.duration_s && <span className="text-xs text-mute">{Math.round(it.duration_s)} с</span>}
+                        </div>
+                        <div className="mt-1 truncate font-semibold text-ink">{it.title}</div>
+                        <div className="text-xs text-mute">
+                          {fmtDateTime(it.created_at)} · ${Number(it.cost_usd).toFixed(2)}
+                        </div>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
         </div>
       )}
     </>
@@ -179,10 +207,11 @@ function Editor({ id }: { id: string }) {
   const image = publicUrl(item.image_path);
 
   const save = () => update.mutate({ script: draft }, { onSuccess: () => toast.success("Збережено") });
+  const noMedia = isChannelPost(draft) && draft.channel === "threads";
   const approve = () =>
     update.mutate(
-      { script: draft, status: "approved", review_note: null },
-      { onSuccess: () => toast.success("Затверджено", { description: "Ферма згенерує матеріал протягом ~15 хвилин і надішле в Telegram." }) },
+      { script: draft, status: noMedia ? "review" : "approved", review_note: null },
+      { onSuccess: () => toast.success("Затверджено", { description: "Ферма згенерує матеріал протягом ~30 хвилин і надішле в Telegram." }) },
     );
   const askRewrite = () =>
     update.mutate(
@@ -191,7 +220,7 @@ function Editor({ id }: { id: string }) {
         onSuccess: () => {
           setNoteOpen(false);
           setNote("");
-          toast.success("Відправлено на переписування", { description: "Нова версія прийде в Telegram протягом ~15 хвилин." });
+          toast.success("Відправлено на переписування", { description: "Нова версія прийде в Telegram протягом ~30 хвилин." });
         },
       },
     );
@@ -216,7 +245,7 @@ function Editor({ id }: { id: string }) {
 
       {(item.status === "approved" || item.status === "rendering") && (
         <Card className="mb-5 flex items-center gap-3 p-4 text-sm text-ink-soft">
-          <Loader2 className="size-5 animate-spin text-seal-500" /> Генерується: голоси, фони, рендер. Зазвичай до 15 хвилин — сторінка оновиться сама.
+          <Loader2 className="size-5 animate-spin text-seal-500" /> Генерується: голоси, фони, рендер. Зазвичай до 30 хвилин — сторінка оновиться сама.
         </Card>
       )}
       {(item.status === "script_rewrite" || item.status === "rewriting") && (
@@ -248,7 +277,9 @@ function Editor({ id }: { id: string }) {
       )}
 
       <fieldset disabled={!editable} className="grid gap-5">
-        {isStory(draft) ? (
+        {isChannelPost(draft) ? (
+          <ChannelPostEditor value={draft} onChange={set} />
+        ) : isStory(draft) ? (
           <StoryEditor value={draft} onChange={set} />
         ) : isEdu(draft) ? (
           <EduEditor value={draft} onChange={set} />

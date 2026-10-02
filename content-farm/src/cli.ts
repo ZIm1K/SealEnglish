@@ -4,9 +4,9 @@ import { DEMO_PROPS } from "../remotion/demo.ts";
 import { ROOT, saveSetting, settings, supabase } from "./env.ts";
 import { Budget } from "./llm.ts";
 import { ideate, scanTrends } from "./plan.ts";
-import { produceApproved, rewriteRequested, writeScripts } from "./produce.ts";
+import { pickPackIdeas, produceApproved, rewriteRequested, writePack, writeScripts } from "./produce.ts";
 import { makeBundle, preparePublic, renderVideo } from "./render.ts";
-import { finishRun, freshIdeas, recentTitles, saveIdeas, startRun, type StoredIdea } from "./store.ts";
+import { finishRun, freshIdeas, recentTitles, saveIdeas, startRun } from "./store.ts";
 
 const [, , command = "help", ...rest] = process.argv;
 const flags: Record<string, string> = {};
@@ -17,23 +17,13 @@ for (let i = 0; i < rest.length; i++) {
 }
 const num = (k: string, d: number) => (flags[k] !== undefined ? Number(flags[k]) : d);
 
+const LF = "\n";
 const STORY_SEP = "\n\n— — — Історії — — —\n\n";
 const lines: string[] = [];
 const log = (m: string) => {
   lines.push(m);
   console.log(m);
 };
-
-/** Split ranked ideas: best stories + best edu ideas go to video (by story share), text-friendly leftovers to posts. */
-function split(ideas: StoredIdea[], videos: number, texts: number, storyShare: number) {
-  const wantStories = Math.round(videos * storyShare);
-  const stories = ideas.filter((i) => i.idea.format === "story").slice(0, wantStories);
-  const edu = ideas.filter((i) => i.idea.format !== "story").slice(0, videos - stories.length);
-  const v = [...stories, ...edu];
-  if (v.length < videos) v.push(...ideas.filter((i) => !v.includes(i)).slice(0, videos - v.length));
-  const t = ideas.filter((i) => !v.includes(i) && i.idea.text_post_ok).slice(0, texts);
-  return { v, t };
-}
 
 async function main() {
   const s = await settings();
@@ -49,33 +39,32 @@ async function main() {
     }
 
     case "scan":
+    case "pack":
     case "daily":
     case "custom": {
+      // pack (alias daily): trends → ideas → one pack (TikTok story, Stories edu, Threads, Telegram, Instagram).
+      // custom: one video script on --topic (--format story|edu). scan: ideas only.
       const runId = await startRun(command);
       const budget = new Budget(Infinity);
       try {
         const scan =
           command === "custom" && !flags.trends ? { signals: [], web_report: "", story_report: "" } : await scanTrends(s, budget, log);
-        const count = command === "custom" ? num("count", 1) : num("ideas", s.ideas_per_scan);
-        // custom: --format story (default) | edu
-        const stories = command === "custom" ? (flags.format === "edu" ? 0 : count) : Math.max(Math.ceil(count * s.story_share), 1);
+        const count = command === "custom" ? num("count", 1) : num("ideas", 6);
+        const stories = command === "custom" ? (flags.format === "edu" ? 0 : count) : 2;
         log(`Аналіз трендів і генерація ${count} ідей (історій: ${stories})…`);
         const ideas = await ideate({ s, budget, scan, recentTitles: await recentTitles(), count, stories, topic: flags.topic });
         const stored = await saveIdeas(runId, ideas);
         for (const [i, { idea }] of stored.entries()) log(`  ${i + 1}. [${idea.format}] ${idea.title} — ${idea.trend}`);
         log(`Аналіз коштував $${budget.spent.toFixed(3)}`);
 
+        // Scripts only — media is produced after the owner approves them in the cabinet (`work`).
         let made = 0;
-        if (command !== "scan") {
-          const share = command === "custom" ? (flags.format === "edu" ? 0 : 1) : s.story_share;
-          const { v, t } = split(stored, num("videos", command === "custom" ? 1 : s.videos_per_run), num("texts", command === "custom" ? 0 : s.texts_per_run), share);
-          // Scripts only — media is produced after the owner approves them in the cabinet (`work`).
-          made += await writeScripts(s, v, t, log);
-        }
-        await finishRun(runId, { status: "done", cost_usd: budget.spent, log: lines.join("\n"), signals: scan.signals, web_report: [scan.web_report, scan.story_report].filter(Boolean).join(STORY_SEP) });
-        log(`Готово. Сценаріїв на затвердження: ${made}`);
+        if (command === "custom") made = await writeScripts(s, stored.slice(0, 1), log);
+        else if (command !== "scan") made = await writePack(s, pickPackIdeas(stored), log);
+        await finishRun(runId, { status: "done", cost_usd: budget.spent, log: lines.join(LF), signals: scan.signals, web_report: [scan.web_report, scan.story_report].filter(Boolean).join(STORY_SEP) });
+        log(`Готово. На затвердження: ${made}`);
       } catch (e) {
-        await finishRun(runId, { status: "failed", cost_usd: budget.spent, log: lines.join("\n"), error: String(e) });
+        await finishRun(runId, { status: "failed", cost_usd: budget.spent, log: lines.join(LF), error: String(e) });
         throw e;
       }
       return;
@@ -119,13 +108,10 @@ async function main() {
     }
 
     case "produce": {
-      // Scripts from ideas saved by earlier scans (no new trend scan).
-      const videos = num("videos", s.videos_per_run);
-      const texts = num("texts", s.texts_per_run);
-      const ideas = await freshIdeas(videos + texts * 2);
-      if (!ideas.length) return log("Немає свіжих ідей — запустіть `scan` або `daily`.");
-      const { v, t } = split(ideas, videos, texts, s.story_share);
-      log(`Готово. Сценаріїв на затвердження: ${await writeScripts(s, v, t, log)}`);
+      // A pack from ideas saved by earlier scans (no new trend scan).
+      const ideas = await freshIdeas(8);
+      if (!ideas.length) return log("Немає свіжих ідей — запустіть `scan` або `pack`.");
+      log(`Готово. На затвердження: ${await writePack(s, pickPackIdeas(ideas), log)}`);
       return;
     }
 

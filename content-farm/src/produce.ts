@@ -1,9 +1,11 @@
 // Two-stage production with the owner in the loop:
-//   1) writeScripts — ideas → scripts saved as status "script" → owner edits/approves in the cabinet
-//      (/app/content/), or asks for a rewrite with a note ("script_rewrite").
-//   2) produceApproved — "approved" scripts → voice, backgrounds, render → storage → status "review".
+//   1) writePack — every 2 days: TikTok story + Stories edu video scripts + Threads/Telegram/Instagram
+//      posts, saved as status "script" in one pack → owner edits/approves in the cabinet
+//      (/app/content/) or asks for a rewrite with a note ("script_rewrite").
+//   2) produceApproved — "approved" items → voices, images, render → storage → status "review".
 import fs from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { HANDLES } from "./brand.ts";
 import { ROOT, type FarmSettings } from "./env.ts";
 import { buildRenderProps, buildStoryProps, type BeatMedia, type SceneAudio } from "./layout.ts";
@@ -12,9 +14,18 @@ import { canDraw, drawFrame, frameCost, type FrameRequest } from "./media/images
 import { locateHead } from "./media/locate.ts";
 import { speak, type Speech } from "./media/tts.ts";
 import { notifyAdmins } from "./notify.ts";
-import { jobDir, makeBundle, pickMusic, preparePublic, PUBLIC, renderVideo } from "./render.ts";
-import type { Idea, RenderLocation, RenderProps, Script, Speaker, Story, StoryProps, TextPost } from "./schema.ts";
-import { detectScript, normalizeScript, normalizeStory, rewriteWithNote, writeScript, writeStory, writeTextPost, type AnyScript } from "./script.ts";
+import { jobDir, makeBundle, pickMusic, preparePublic, PUBLIC, renderIgCard, renderVideo } from "./render.ts";
+import type { Channel, Idea, RenderLocation, RenderProps, Script, Speaker, Story, StoryProps } from "./schema.ts";
+import {
+  detectScript,
+  normalizeScript,
+  normalizeStory,
+  rewriteWithNote,
+  writePostsBundle,
+  writeScript,
+  writeStory,
+  type AnyScript,
+} from "./script.ts";
 import { claimItem, itemsWithStatus, markIdea, saveItem, siteUrl, updateItem, upload, writeLocal, type ItemRow, type StoredIdea } from "./store.ts";
 
 type Log = (m: string) => void;
@@ -36,6 +47,14 @@ const stamp = () => new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "");
 const outDir = () => path.join(ROOT, "out", new Date().toISOString().slice(0, 10));
 const rel = (abs: string) => path.relative(PUBLIC, abs).split(path.sep).join("/");
 const round4 = (n: number) => Math.round(n * 10000) / 10000;
+
+export const CHANNEL_LABEL: Record<Channel, string> = {
+  tiktok: "🎵 TikTok — історія",
+  stories: "📲 Stories — навчальне відео",
+  threads: "🧵 Threads",
+  telegram: "✈️ Telegram",
+  instagram: "📸 Instagram",
+};
 
 /** Set after the first failure (e.g. provider down, no credits) so a run doesn't retry per scene. */
 let ttsDown = false;
@@ -77,52 +96,149 @@ async function trySpeak(
 // ───────────────────────── Stage 1: scripts for approval ─────────────────────────
 
 function scriptPreview(script: AnyScript): string {
-  if (script.kind === "story") {
-    const st = script.data;
-    const lines = st.beats.map((b) => `${b.speaker === "narrator" ? "🎙" : b.speaker === "seal" ? "🦭" : "💬"} ${b.speaker_name || "Оповідач"}: ${b.narration}${b.translation ? `  (${b.translation})` : ""}`);
-    return [`Хук: ${st.hook_overlay}`, "", ...lines].join("\n");
+  switch (script.kind) {
+    case "story":
+      return [
+        `Хук: ${script.data.hook_overlay}`,
+        "",
+        ...script.data.beats.map(
+          (b) => `${b.speaker === "narrator" ? "🎙" : b.speaker === "seal" ? "🦭" : "💬"} ${b.speaker_name || "Оповідач"}: ${b.narration}${b.translation ? `  (${b.translation})` : ""}`,
+        ),
+      ].join("\n");
+    case "edu":
+      return script.data.scenes.map((sc) => `• [${sc.kind}] ${sc.headline} — ${sc.voice}`).join("\n");
+    case "threads":
+      return script.data.text;
+    case "telegram":
+      return `${script.data.text}\n\n🖼 ${script.data.image_prompt}`;
+    case "instagram":
+      return `На картинці: ${script.data.image_headline}${script.data.image_sub ? ` / ${script.data.image_sub}` : ""}\n\n${script.data.caption}`;
+    default:
+      return `🧵 ${script.data.threads_post}\n\n✈️ ${script.data.telegram_post}`;
   }
-  if (script.kind === "edu") return script.data.scenes.map((sc) => `• [${sc.kind}] ${sc.headline} — ${sc.voice}`).join("\n");
-  return `🧵 Threads:\n${script.data.threads_post}\n\n✈️ Telegram:\n${script.data.telegram_post}`;
 }
 
 async function notifyScript(id: string | null, title: string, script: AnyScript, cost: number, rewritten = false) {
   const link = id ? `${await siteUrl()}/app/content/?id=${id}` : "";
   await notifyAdmins({
     title,
-    summary: `${rewritten ? "✏️ Сценарій переписано за вашим коментарем" : "📝 Новий сценарій на затвердження"} · $${cost.toFixed(3)}${link ? `\nВідкрити й затвердити: ${link}` : ""}`,
+    summary: `${rewritten ? "✏️ Переписано за вашим коментарем" : "📝 Новий сценарій на затвердження"} · $${cost.toFixed(3)}${link ? `\nВідкрити: ${link}` : ""}`,
     details: scriptPreview(script),
   });
 }
 
-/** Writes scripts for the chosen ideas and queues them for the owner's approval. */
-export async function writeScripts(s: FarmSettings, videoIdeas: StoredIdea[], textIdeas: StoredIdea[], log: Log): Promise<number> {
-  let made = 0;
-  const jobs: [StoredIdea, "video" | "text"][] = [...videoIdeas.map((i) => [i, "video"] as [StoredIdea, "video"]), ...textIdeas.map((i) => [i, "text"] as [StoredIdea, "text"])];
-  for (const [stored, kind] of jobs) {
-    const budget = new Budget(kind === "video" ? s.max_usd_per_video : s.max_usd_per_text);
+interface PackIdeas {
+  story: StoredIdea | null;
+  edu: StoredIdea | null;
+  posts: StoredIdea[];
+}
+
+/** Picks the pack's ideas from ranked ideas: best story, best edu idea, then three for the posts. */
+export function pickPackIdeas(ideas: StoredIdea[]): PackIdeas {
+  const story = ideas.find((i) => i.idea.format === "story") ?? null;
+  const edu = ideas.find((i) => i.idea.format !== "story") ?? null;
+  const rest = ideas.filter((i) => i !== story && i !== edu);
+  const posts = [...rest.filter((i) => i.idea.text_post_ok), ...rest.filter((i) => !i.idea.text_post_ok)].slice(0, 3);
+  return { story, edu, posts };
+}
+
+async function saveScriptItem(
+  s: FarmSettings,
+  packId: string,
+  channel: Channel,
+  title: string,
+  stored: StoredIdea | null,
+  data: Record<string, unknown>,
+  budget: Budget,
+  kind: "video" | "text",
+) {
+  const record = {
+    idea_id: stored?.id ?? null,
+    pack_id: packId,
+    channel,
+    kind,
+    status: "script",
+    title,
+    script: { ...data, idea: stored?.idea },
+    cost_usd: round4(budget.spent),
+    cost_breakdown: budget.lines,
+  };
+  const id = await saveItem(record);
+  writeLocal(outDir(), `${stamp()}-${channel}-${slug(title)}`, { item_id: id, ...record });
+  if (stored) await markIdea(stored.id, "used");
+  return id;
+}
+
+/** Writes one pack (2 video scripts + 3 posts) and sends the owner one Telegram message with the link. */
+export async function writePack(s: FarmSettings, ideas: PackIdeas, log: Log): Promise<number> {
+  const packId = randomUUID();
+  const made: string[] = [];
+  let total = 0;
+
+  const video = async (channel: "tiktok" | "stories", stored: StoredIdea | null) => {
+    if (!stored) return log(`  ⚠ немає ідеї для ${CHANNEL_LABEL[channel]}`);
+    const budget = new Budget(s.max_usd_per_video);
     try {
-      log(`▶ сценарій: ${stored.idea.title} [${kind === "text" ? "текст" : stored.idea.format}]`);
+      log(`▶ ${CHANNEL_LABEL[channel]}: ${stored.idea.title}`);
+      const data =
+        channel === "tiktok"
+          ? normalizeStory(await writeStory(s, budget, stored.idea))
+          : normalizeScript(await writeScript(s, budget, stored.idea));
+      await saveScriptItem(s, packId, channel, stored.idea.title, stored, data as unknown as Record<string, unknown>, budget, "video");
+      made.push(CHANNEL_LABEL[channel]);
+    } catch (e) {
+      log(`  ✖ ${(e as Error).message}`);
+    }
+    total += budget.spent;
+  };
+  await video("tiktok", ideas.story);
+  // The Stories slot is for the edu rubrics (quiz, wrong/right…); a story idea is reformatted if that's all we have.
+  await video("stories", ideas.edu ? ideas.edu : ideas.story && { ...ideas.story, idea: { ...ideas.story.idea, format: "quiz" } });
+
+  if (ideas.posts.length) {
+    const budget = new Budget(s.max_usd_per_text * 3);
+    try {
+      log(`▶ пости Threads / Telegram / Instagram`);
+      const bundle = await writePostsBundle(s, budget, ideas.posts.map((p) => p.idea));
+      const share = new Budget(Infinity);
+      share.add("posts_share", budget.spent / 3);
+      const titleOf = (text: string) => text.split("\n")[0].replace(/[*_#]/g, "").slice(0, 80) || "Пост";
+      await saveScriptItem(s, packId, "threads", titleOf(bundle.threads.text), null, { channel: "threads", ...bundle.threads }, share, "text");
+      await saveScriptItem(s, packId, "telegram", titleOf(bundle.telegram.text), null, { channel: "telegram", ...bundle.telegram }, share, "text");
+      await saveScriptItem(s, packId, "instagram", bundle.instagram.image_headline, null, { channel: "instagram", ...bundle.instagram }, share, "text");
+      for (const p of ideas.posts) await markIdea(p.id, "used");
+      made.push(CHANNEL_LABEL.threads, CHANNEL_LABEL.telegram, CHANNEL_LABEL.instagram);
+    } catch (e) {
+      log(`  ✖ пости: ${(e as Error).message}`);
+    }
+    total += budget.spent;
+  }
+
+  if (made.length) {
+    await notifyAdmins({
+      title: "Новий контент-пакет",
+      summary: `📦 Пакет на затвердження: ${made.length} матеріалів · $${total.toFixed(2)}\nВідкрити: ${await siteUrl()}/app/content/`,
+      details: made.map((m) => `• ${m}`).join("\n"),
+    });
+  }
+  log(`Пакет ${packId}: ${made.length} матеріалів · $${total.toFixed(3)}`);
+  return made.length;
+}
+
+/** One-off video scripts on a given topic (`custom`), outside packs. */
+export async function writeScripts(s: FarmSettings, videoIdeas: StoredIdea[], log: Log): Promise<number> {
+  let made = 0;
+  for (const stored of videoIdeas) {
+    const budget = new Budget(s.max_usd_per_video);
+    try {
+      log(`▶ сценарій: ${stored.idea.title} [${stored.idea.format}]`);
+      const channel: Channel = stored.idea.format === "story" ? "tiktok" : "stories";
       const script: AnyScript =
-        kind === "text"
-          ? { kind: "text", data: await writeTextPost(s, budget, stored.idea) }
-          : stored.idea.format === "story"
-            ? { kind: "story", data: normalizeStory(await writeStory(s, budget, stored.idea)) }
-            : { kind: "edu", data: normalizeScript(await writeScript(s, budget, stored.idea)) };
-      const record = {
-        idea_id: stored.id,
-        kind,
-        status: "script",
-        title: stored.idea.title,
-        script: { ...script.data, idea: stored.idea },
-        cost_usd: round4(budget.spent),
-        cost_breakdown: budget.lines,
-      };
-      const itemId = await saveItem(record);
-      writeLocal(outDir(), `${stamp()}-${slug(stored.idea.title)}-script`, { item_id: itemId, ...record });
-      await markIdea(stored.id, "used");
-      await notifyScript(itemId, stored.idea.title, script, budget.spent);
-      log(`  ✔ на затвердженні · $${budget.spent.toFixed(3)}`);
+        channel === "tiktok"
+          ? { kind: "story", data: normalizeStory(await writeStory(s, budget, stored.idea)) }
+          : { kind: "edu", data: normalizeScript(await writeScript(s, budget, stored.idea)) };
+      const id = await saveScriptItem(s, randomUUID(), channel, stored.idea.title, stored, script.data as unknown as Record<string, unknown>, budget, "video");
+      await notifyScript(id, stored.idea.title, script, budget.spent);
       made++;
     } catch (e) {
       log(`  ✖ ${(e as Error).message}`);
@@ -139,11 +255,11 @@ export async function rewriteRequested(s: FarmSettings, log: Log): Promise<numbe
     const budget = new Budget(1);
     try {
       log(`✏️ переписую: ${item.title}`);
-      const { idea, ...raw } = item.script as { idea?: Idea } & Record<string, unknown>;
-      const next = await rewriteWithNote(s, budget, detectScript(raw), item.review_note ?? "");
+      const { idea, channel, ...raw } = item.script as { idea?: Idea; channel?: string } & Record<string, unknown>;
+      const next = await rewriteWithNote(s, budget, detectScript({ ...raw, channel }), item.review_note ?? "");
       await updateItem(item.id, {
         status: "script",
-        script: { ...next.data, idea },
+        script: { ...(channel ? { channel } : {}), ...next.data, idea },
         cost_usd: round4(Number(item.cost_usd) + budget.spent),
         cost_breakdown: [...(item.cost_breakdown ?? []), ...budget.lines],
       });
@@ -224,8 +340,6 @@ function captionsDigest(script: Script | Story) {
   return [
     `🎵 TikTok:\n${script.caption_tiktok}\n${tags}`,
     `📸 Instagram Reels:\n${script.caption_instagram}\n\n${tags}`,
-    `🧵 Threads:\n${script.threads_post}`,
-    `✈️ Telegram:\n${script.telegram_post}`,
     "sources" in script && script.sources ? `🔎 Джерела фактів (перевірте перед публікацією):\n${script.sources}` : "",
   ]
     .filter(Boolean)
@@ -235,7 +349,7 @@ function captionsDigest(script: Script | Story) {
 async function produceVideoItem(s: FarmSettings, item: ItemRow, log: Log) {
   const { idea, ...raw } = item.script as { idea?: Idea } & Record<string, unknown>;
   const script = detectScript(raw);
-  if (script.kind === "text") throw new Error("очікувався сценарій відео");
+  if (script.kind !== "story" && script.kind !== "edu") throw new Error("очікувався сценарій відео");
   const budget = new Budget(s.max_usd_per_video);
   budget.spent = Number(item.cost_usd) || 0; // the script already cost something; the cap covers the whole video
   const id = `${stamp()}-${slug(item.title) || "video"}`;
@@ -256,7 +370,6 @@ async function produceVideoItem(s: FarmSettings, item: ItemRow, log: Log) {
       cost_usd: round4(budget.spent),
       cost_breakdown: [...(item.cost_breakdown ?? []), ...budget.lines],
     });
-    writeLocal(outDir(), id, { item_id: item.id, script: script.data });
     const sent = await notifyAdmins({
       title: item.title,
       summary: `🎬 Відео готове · ${idea?.format ?? script.kind} · ${out.seconds.toFixed(0)} с · $${budget.spent.toFixed(3)}`,
@@ -269,44 +382,57 @@ async function produceVideoItem(s: FarmSettings, item: ItemRow, log: Log) {
   }
 }
 
-async function produceTextItem(s: FarmSettings, item: ItemRow, log: Log) {
-  const { idea, ...raw } = item.script as { idea?: Idea } & Record<string, unknown>;
-  const post = raw as unknown as TextPost;
+/** Posts: Threads needs nothing; Telegram gets an illustration; Instagram gets a rendered card. */
+async function producePostItem(s: FarmSettings, item: ItemRow, log: Log) {
+  const { idea: _idea, ...raw } = item.script as { idea?: Idea } & Record<string, unknown>;
+  void _idea;
+  const script = detectScript(raw);
   const budget = new Budget(s.max_usd_per_text + (Number(item.cost_usd) || 0));
   budget.spent = Number(item.cost_usd) || 0;
-  const id = `${stamp()}-${slug(item.title) || "post"}`;
+  const id = `${stamp()}-${item.channel ?? "post"}-${slug(item.title) || "post"}`;
   let imageFile: string | undefined;
-  if (post.image_prompt && (await canDraw(s)) && budget.canAfford(frameCost(s, false))) {
-    try {
-      fs.mkdirSync(outDir(), { recursive: true });
-      imageFile = path.join(outDir(), `${id}.jpg`);
-      await drawFrame(s, budget, { prompt: post.image_prompt, withSeal: false, aspect: "4:5" }, imageFile);
-    } catch (e) {
-      imageFile = undefined;
-      log(`  картинка пропущена: ${(e as Error).message.slice(0, 160)}`);
+  const dir = jobDir(id);
+  try {
+    if (script.kind === "telegram" || script.kind === "text") {
+      const prompt = script.data.image_prompt;
+      if (prompt) {
+        const src = await tryDraw(s, budget, { prompt, withSeal: false, aspect: "4:5" }, path.join(dir, "img.jpg"), log);
+        if (src) imageFile = path.join(PUBLIC, src);
+      }
+    } else if (script.kind === "instagram") {
+      const bg = await tryDraw(s, budget, { prompt: script.data.image_prompt, withSeal: false, aspect: "4:5" }, path.join(dir, "bg.jpg"), log);
+      imageFile = path.join(dir, "card.jpg");
+      await renderIgCard(await makeBundle(), { image_src: bg, headline: script.data.image_headline, sub: script.data.image_sub, handle: HANDLES.instagram }, imageFile);
     }
+    const imagePath = imageFile ? await upload(imageFile, `posts/${id}.jpg`, "image/jpeg") : null;
+    await updateItem(item.id, {
+      status: "review",
+      image_path: imagePath,
+      cost_usd: round4(budget.spent),
+      cost_breakdown: [...(item.cost_breakdown ?? []), ...budget.lines],
+    });
+    await notifyAdmins({
+      title: item.title,
+      summary: `✅ Готово: ${CHANNEL_LABEL[(item.channel as Channel) ?? "telegram"] ?? "пост"} · $${budget.spent.toFixed(3)}`,
+      details: scriptPreview(script),
+      imageFile,
+    });
+    log(`  ✔ ${item.channel} · $${budget.spent.toFixed(3)}`);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
-  const imagePath = imageFile ? await upload(imageFile, `posts/${id}.jpg`, "image/jpeg") : null;
-  await updateItem(item.id, { status: "review", image_path: imagePath, cost_usd: round4(budget.spent) });
-  await notifyAdmins({
-    title: item.title,
-    summary: `✅ Пост готовий${idea?.trend ? ` · ${idea.trend}` : ""} · $${budget.spent.toFixed(3)}`,
-    details: `🧵 Threads:\n${post.threads_post}\n\n— — —\n\n✈️ Telegram:\n${post.telegram_post}\n\n${HANDLES.telegram}`,
-    imageFile,
-  });
-  log(`  ✔ пост · $${budget.spent.toFixed(3)}`);
 }
 
 /** Produces everything the owner approved. Safe to run often: items are claimed atomically. */
 export async function produceApproved(s: FarmSettings, log: Log): Promise<number> {
-  const items = await itemsWithStatus(["approved"], 5);
+  const items = await itemsWithStatus(["approved"], 8);
   if (!items.length) return 0;
   preparePublic();
   let made = 0;
   for (const item of items) {
     if (!(await claimItem(item.id, "approved", "rendering"))) continue;
     try {
-      if (item.kind === "text") await produceTextItem(s, item, log);
+      if (item.kind === "text") await producePostItem(s, item, log);
       else await produceVideoItem(s, item, log);
       made++;
     } catch (e) {

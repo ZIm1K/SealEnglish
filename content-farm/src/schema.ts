@@ -185,3 +185,40 @@ export interface StoryProps {
   music_src: string | null;
   fps: number;
 }
+
+// ---- Channel posts (one pack = TikTok story + Stories edu video + these three) ----
+export const CHANNELS = ["tiktok", "stories", "threads", "telegram", "instagram"] as const;
+export type Channel = (typeof CHANNELS)[number];
+
+export const ThreadsPostSchema = z.object({
+  text: z.string().describe("Пост Threads: лише текст, до 450 символів, розмовно, з питанням або «гачком» для відповідей"),
+});
+export const TelegramPostSchema = z.object({
+  text: z.string().describe("Пост Telegram-каналу до 900 символів: живий заголовок, користь/історія, приклади англійською, м'який CTA; 1–3 емодзі"),
+  image_prompt: z.string().describe("Англ. промпт для ілюстрації до поста (без тексту на картинці), стилізована 3D-анімація"),
+});
+export const InstagramPostSchema = z.object({
+  image_headline: z.string().describe("Великий текст НА картинці, до 50 символів — головна думка/хук, читається за секунду"),
+  image_sub: z.string().describe("Дрібний підпис на картинці до 70 символів (англ. фраза + переклад або уточнення), або ''"),
+  image_prompt: z.string().describe("Англ. промпт для фонового фото 4:5 без тексту; верхня половина спокійна (там буде текст)"),
+  caption: z.string().describe("Допис під фото до 1000 символів: розгортає думку з картинки, приклади, питання, CTA"),
+  hashtags: z.array(z.string()).describe("5–10 хештегів без #"),
+});
+export const PostsBundleSchema = z.object({
+  threads: ThreadsPostSchema,
+  telegram: TelegramPostSchema,
+  instagram: InstagramPostSchema,
+});
+export type ThreadsPost = z.infer<typeof ThreadsPostSchema>;
+export type TelegramPost = z.infer<typeof TelegramPostSchema>;
+export type InstagramPost = z.infer<typeof InstagramPostSchema>;
+export type PostsBundle = z.infer<typeof PostsBundleSchema>;
+
+/** Props of the Instagram card still (background + headline + brand). */
+export interface IgCardProps {
+  [key: string]: unknown;
+  image_src: string | null;
+  headline: string;
+  sub: string;
+  handle: string;
+}

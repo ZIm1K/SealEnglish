@@ -93,6 +93,7 @@ export function writeLocal(dir: string, name: string, payload: unknown) {
 export interface ItemRow {
   id: string;
   kind: "video" | "text";
+  channel: string | null;
   status: string;
   title: string;
   script: Record<string, unknown>;
@@ -106,7 +107,7 @@ export async function itemsWithStatus(statuses: string[], limit = 10): Promise<I
   if (!sb) return [];
   const { data, error } = await sb
     .from("content_items")
-    .select("id, kind, status, title, script, review_note, cost_usd, cost_breakdown")
+    .select("id, kind, channel, status, title, script, review_note, cost_usd, cost_breakdown")
     .in("status", statuses)
     .order("updated_at", { ascending: true })
     .limit(limit);

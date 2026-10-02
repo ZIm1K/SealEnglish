@@ -71,7 +71,35 @@ export interface TextPost {
   telegram_post: string;
   image_prompt: string;
 }
-export type ScriptJson = (Story | Edu | TextPost) & { idea?: { title?: string; trend?: string; format?: string; facts?: string } };
+export interface ThreadsPost {
+  channel: "threads";
+  text: string;
+}
+export interface TelegramPost {
+  channel: "telegram";
+  text: string;
+  image_prompt: string;
+}
+export interface InstagramPost {
+  channel: "instagram";
+  image_headline: string;
+  image_sub: string;
+  image_prompt: string;
+  caption: string;
+  hashtags: string[];
+}
+export type ChannelPost = ThreadsPost | TelegramPost | InstagramPost;
+export type ScriptJson = (Story | Edu | TextPost | ChannelPost) & { idea?: { title?: string; trend?: string; format?: string; facts?: string } };
+
+export const CHANNEL_LABEL: Record<string, string> = {
+  tiktok: "🎵 TikTok · історія",
+  stories: "📲 Stories · навчальне",
+  threads: "🧵 Threads",
+  telegram: "✈️ Telegram",
+  instagram: "📸 Instagram",
+};
+export const isChannelPost = (s: ScriptJson): s is ChannelPost & ScriptJson =>
+  ["threads", "telegram", "instagram"].includes(String((s as ChannelPost).channel));
 
 const SPEAKERS: { value: Speaker; label: string }[] = [
   { value: "narrator", label: "🎙 Оповідач" },
@@ -383,6 +411,75 @@ export function CaptionsEditor({ value, onChange }: { value: Captions; onChange:
           <Select value={value.music_mood} onChange={(e) => onChange({ music_mood: e.target.value })}>
             {MOODS.map((m) => <option key={m} value={m}>{m}</option>)}
           </Select>
+        </Field>
+      </div>
+    </Card>
+  );
+}
+
+const copyText = (text: string) => navigator.clipboard.writeText(text).then(() => toast.success("Скопійовано"));
+
+function CopyLabel({ label, text }: { label: string; text: string }) {
+  return (
+    <span className="flex items-center gap-2">
+      {label}
+      <button type="button" className="cursor-pointer text-seal-600 hover:text-seal-800" aria-label={`Копіювати: ${label}`} onClick={() => copyText(text)}>
+        <Copy className="size-4" />
+      </button>
+    </span>
+  );
+}
+
+/** Threads (text only), Telegram (text + illustration prompt), Instagram (card text + background + caption). */
+export function ChannelPostEditor({ value, onChange }: { value: ChannelPost & ScriptJson; onChange: (v: ScriptJson) => void }) {
+  if (value.channel === "threads") {
+    return (
+      <Card>
+        <CardHeader title="🧵 Пост Threads" description="Лише текст. До 500 символів." />
+        <div className="p-5 sm:p-6">
+          <Field label={<CopyLabel label="Текст" text={value.text} />} hint={`${value.text.length} / 500`}>
+            <Textarea rows={8} value={value.text} onChange={(e) => onChange({ ...value, text: e.target.value })} />
+          </Field>
+        </div>
+      </Card>
+    );
+  }
+  if (value.channel === "telegram") {
+    return (
+      <Card>
+        <CardHeader title="✈️ Пост Telegram" description="Текст + картинка, яку ферма згенерує за промптом після затвердження." />
+        <div className="grid gap-4 p-5 sm:p-6">
+          <Field label={<CopyLabel label="Текст" text={value.text} />} hint={`${value.text.length} / 1024`}>
+            <Textarea rows={10} value={value.text} onChange={(e) => onChange({ ...value, text: e.target.value })} />
+          </Field>
+          <Field label="Промпт картинки" hint="англійською, без тексту на зображенні">
+            <Textarea rows={3} value={value.image_prompt} onChange={(e) => onChange({ ...value, image_prompt: e.target.value })} />
+          </Field>
+        </div>
+      </Card>
+    );
+  }
+  const caption = `${value.caption}
+
+${value.hashtags.map((h) => `#${h}`).join(" ")}`;
+  return (
+    <Card>
+      <CardHeader title="📸 Пост Instagram" description="Картка 4:5: фонове фото + великий текст на ньому. Під фото — допис." />
+      <div className="grid gap-4 p-5 sm:p-6 lg:grid-cols-2">
+        <Field label="Текст на картинці" hint={`${value.image_headline.length} / 50`}>
+          <Input value={value.image_headline} onChange={(e) => onChange({ ...value, image_headline: e.target.value })} />
+        </Field>
+        <Field label="Підпис на картинці" hint="англ. фраза + переклад, або порожньо">
+          <Input value={value.image_sub} onChange={(e) => onChange({ ...value, image_sub: e.target.value })} />
+        </Field>
+        <Field label="Фонове фото (промпт)" hint="англійською" className="lg:col-span-2">
+          <Textarea rows={2} value={value.image_prompt} onChange={(e) => onChange({ ...value, image_prompt: e.target.value })} />
+        </Field>
+        <Field label={<CopyLabel label="Допис під фото" text={caption} />} className="lg:col-span-2">
+          <Textarea rows={8} value={value.caption} onChange={(e) => onChange({ ...value, caption: e.target.value })} />
+        </Field>
+        <Field label="Хештеги" hint="через пробіл" className="lg:col-span-2">
+          <Input value={value.hashtags.join(" ")} onChange={(e) => onChange({ ...value, hashtags: e.target.value.split(/\s+/).map((h) => h.replace(/^#/, "")).filter(Boolean) })} />
         </Field>
       </div>
     </Card>
