@@ -1,27 +1,11 @@
 import React from "react";
 import { AbsoluteFill, Audio, interpolate, Sequence, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 import type { RenderProps, RenderScene } from "../src/schema.ts";
-import { BrandBackground, Captions, EnglishPill, Header, ImageBackground, Mark, Mascot, PopText } from "./parts.tsx";
+import { Backdrop, BigCaps, Host, pill, SeriesChip, Stage, unnumbered } from "./eduParts.tsx";
+import { EnglishPill, ImageBackground, Mark, PopText } from "./parts.tsx";
 import { body, C, display } from "./theme.ts";
 
 export const sceneFrames = (s: RenderScene, fps: number) => Math.max(1, Math.round(s.duration * fps));
-
-const Stage: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div
-    style={{
-      position: "absolute",
-      top: 330,
-      left: 70,
-      right: 70,
-      height: 730,
-      display: "flex",
-      flexDirection: "column",
-      justifyContent: "center",
-    }}
-  >
-    {children}
-  </div>
-);
 
 const Sub: React.FC<{ text: string; delay?: number }> = ({ text, delay = 6 }) => {
   const f = useCurrentFrame();
@@ -125,7 +109,8 @@ const Countdown: React.FC<{ from: number }> = ({ from }) => {
   const n = 3 - Math.floor(t);
   const frac = t % 1;
   return (
-    <div style={{ position: "absolute", right: 70, top: 1250, width: 190, height: 190 }}>
+    // Positioned relative to the Stage card: lands right of Sílі, clear of the feed's button column.
+    <div style={{ position: "absolute", left: 510, top: 880, width: 190, height: 190 }}>
       <svg width="190" height="190" viewBox="0 0 190 190">
         <circle cx="95" cy="95" r="82" stroke="rgba(255,255,255,0.2)" strokeWidth="14" fill="rgba(6,20,40,0.6)" />
         <circle
@@ -232,8 +217,8 @@ const SceneBody: React.FC<{ scene: RenderScene; index: number; listNumber: numbe
           >
             {listNumber}
           </div>
-          <PopText text={scene.headline} size={64} delay={4} />
-          <EnglishPill text={scene.english} />
+          <PopText text={unnumbered(scene.headline)} size={68} delay={4} />
+          <EnglishPill text={pill(scene.english, scene.headline)} />
           <Sub text={scene.sub} delay={14} />
         </Stage>
       );
@@ -243,9 +228,7 @@ const SceneBody: React.FC<{ scene: RenderScene; index: number; listNumber: numbe
       return (
         <>
           <Stage>
-            <div style={{ marginTop: -120 }}>
-              <PopText text={scene.headline} size={74} />
-            </div>
+            <PopText text={scene.headline} size={70} />
             <div
               style={{
                 alignSelf: "center",
@@ -256,12 +239,14 @@ const SceneBody: React.FC<{ scene: RenderScene; index: number; listNumber: numbe
                 color: C.white,
                 fontFamily: display,
                 fontWeight: 900,
-                fontSize: 52,
+                fontSize: 50,
+                textAlign: "center",
                 transform: `scale(${pulse})`,
                 boxShadow: "0 18px 50px rgba(251,123,99,0.5)",
               }}
             >
-              {scene.sub || "@SealEnglishBot"}
+              {/* Scripts written before the CTA rule pointed at the Telegram bot; the feed CTA is the site. */}
+              {!scene.sub || /bot/i.test(scene.sub) ? "sealenglish.school" : scene.sub}
             </div>
           </Stage>
         </>
@@ -270,8 +255,8 @@ const SceneBody: React.FC<{ scene: RenderScene; index: number; listNumber: numbe
     case "hook":
       return (
         <Stage>
-          <PopText text={scene.headline} size={scene.headline.length > 28 ? 76 : 92} />
-          <EnglishPill text={scene.english} delay={12} />
+          <PopText text={scene.headline} size={scene.headline.length > 28 ? 72 : 88} />
+          <EnglishPill text={pill(scene.english, scene.headline)} delay={12} />
           <Sub text={scene.sub} delay={16} />
         </Stage>
       );
@@ -279,7 +264,7 @@ const SceneBody: React.FC<{ scene: RenderScene; index: number; listNumber: numbe
       return (
         <Stage>
           <PopText text={scene.headline} size={scene.headline.length > 30 ? 60 : 72} />
-          <EnglishPill text={scene.english} />
+          <EnglishPill text={pill(scene.english, scene.headline)} />
           <Sub text={scene.sub} delay={12} />
         </Stage>
       );
@@ -296,13 +281,17 @@ const SceneView: React.FC<{ scene: RenderScene; index: number; total: number; la
   const fadeIn = interpolate(f, [0, 6], [0, 1], { extrapolateRight: "clamp" });
   const revealFrame = Math.round(scene.reveal_start * fps);
   return (
-    <AbsoluteFill style={{ opacity: fadeIn }}>
-      {scene.image_src ? <ImageBackground src={scene.image_src} durationInFrames={frames} /> : <BrandBackground seed={props.seed} />}
-      <Header label={props.label} handle={props.handle} sceneIndex={props.index} total={props.total} sceneProgress={f / frames} />
+    <AbsoluteFill>
+      {scene.image_src && (
+        <AbsoluteFill style={{ opacity: fadeIn }}>
+          <ImageBackground src={scene.image_src} durationInFrames={frames} />
+        </AbsoluteFill>
+      )}
+      <SeriesChip label={props.label} handle={props.handle} />
       <SceneBody scene={scene} index={props.index} listNumber={props.listNumber} />
-      {scene.kind !== "cta" && <Captions words={scene.words} until={scene.kind === "quiz" ? scene.reveal_start : Infinity} />}
-      {scene.kind === "quiz" && <Captions words={scene.reveal_words} offset={scene.reveal_start} />}
-      <Mascot pose={scene.mascot} big={scene.kind === "cta"} />
+      {scene.kind !== "cta" && <BigCaps words={scene.words} until={scene.kind === "quiz" ? scene.reveal_start : Infinity} />}
+      {scene.kind === "quiz" && <BigCaps words={scene.reveal_words} offset={scene.reveal_start} />}
+      <Host scene={scene} />
       {scene.voice_src && <Audio src={staticFile(scene.voice_src)} />}
       {scene.reveal_src && (
         <Sequence from={revealFrame} layout="none">
@@ -314,12 +303,13 @@ const SceneView: React.FC<{ scene: RenderScene; index: number; total: number; la
   );
 };
 
-export const Short: React.FC<RenderProps> = ({ scenes, series_label, handle, music_src, fps }) => {
+export const Short: React.FC<RenderProps> = ({ scenes, series_label, handle, music_src, backdrop_src, fps }) => {
   let from = 0;
   let listCounter = 0;
   const total = scenes.reduce((a, s) => a + sceneFrames(s, fps), 0);
   return (
     <AbsoluteFill style={{ background: C.navy }}>
+      <Backdrop src={backdrop_src ?? null} total={total} />
       {scenes.map((scene, i) => {
         const frames = sceneFrames(scene, fps);
         if (scene.kind === "list_item") listCounter++;

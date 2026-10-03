@@ -14,7 +14,7 @@ export interface SceneAudio {
 const PAD = 0.35; // breathing room after each voice line
 const COUNTDOWN = 3;
 
-export function buildRenderProps(script: Script, audio: SceneAudio[], music_src: string | null, fps = 30): RenderProps {
+export function buildRenderProps(script: Script, audio: SceneAudio[], music_src: string | null, fps = 30, backdrop_src: string | null = null): RenderProps {
   const scenes: RenderScene[] = script.scenes.map((scene, i) => {
     const a = audio[i];
     const voiceLen = a?.voice_seconds ?? readingSeconds(scene.voice);
@@ -49,7 +49,7 @@ export function buildRenderProps(script: Script, audio: SceneAudio[], music_src:
       reveal_words: [],
     };
   });
-  return { series_label: script.series_label, handle: HANDLES.tiktok.replace(/^@?/, "@"), scenes, music_src, fps };
+  return { series_label: script.series_label, handle: HANDLES.tiktok.replace(/^@?/, "@"), scenes, music_src, backdrop_src, fps };
 }
 
 export interface BeatMedia {

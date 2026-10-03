@@ -299,7 +299,11 @@ async function eduMedia(s: FarmSettings, budget: Budget, script: Script, dir: st
   }
   // A half-voiced video is worse than none: if TTS broke mid-way, drop voice entirely.
   if (ttsDown) for (const a of audio) Object.assign(a, { voice_src: null, voice_seconds: null, reveal_src: null, reveal_seconds: null });
-  return buildRenderProps(script, audio, pickMusic(script.music_mood));
+  // One backdrop for the whole video, so it reads as a scene in the feed rather than a slide deck.
+  const backdrop = script.backdrop_prompt
+    ? await tryDraw(s, budget, { prompt: `${script.backdrop_prompt}. Keep the lower-left area calm and uncluttered`, withSeal: false }, path.join(dir, "backdrop.jpg"), log)
+    : null;
+  return buildRenderProps(script, audio, pickMusic(script.music_mood), 30, backdrop);
 }
 
 async function storyMedia(s: FarmSettings, budget: Budget, story: Story, dir: string, log: Log): Promise<StoryProps> {

@@ -57,9 +57,12 @@ export const ScriptSchema = z.object({
   series_label: z.string().describe("Плашка рубрики зверху, до 28 символів, напр. «Як сказати англійською?»"),
   scenes: z.array(SceneSchema).describe("4–8 сцен; перша — hook, остання — cta"),
   cover_title: z.string().describe("Текст обкладинки, до 40 символів"),
+  backdrop_prompt: z
+    .string()
+    .describe("Англ. опис ОДНОГО фону-локації на все відео, що пасує темі (напр. 'cozy student desk with a laptop and sticky notes at night'); без тексту, людей і тварин"),
   music_mood: z.string().describe("Настрій музики: upbeat | chill | funny | suspense"),
   caption_tiktok: z.string().describe("Підпис TikTok: 1–2 рядки + питання до коментарів"),
-  caption_instagram: z.string().describe("Підпис Reels: хук, користь, CTA (бот/безкоштовний урок), до 600 символів"),
+  caption_instagram: z.string().describe("Підпис Reels: хук, користь, CTA (безкоштовний пробний урок — посилання в профілі), до 600 символів"),
   hashtags: z.array(z.string()).describe("5–8 хештегів без #, мікс укр/англ, нішеві + широкі"),
   threads_post: z.string().describe("Окремий текстовий пост для Threads за цією ж ідеєю, до 450 символів, розмовний, із запитанням"),
   telegram_post: z.string().describe("Пост для Telegram-каналу до відео: заголовок, користь, приклад, CTA, до 700 символів, можна емодзі"),
@@ -97,6 +100,8 @@ export interface RenderProps {
   handle: string;
   scenes: RenderScene[];
   music_src: string | null;
+  /** One generated background for the whole video (null → animated brand backdrop). */
+  backdrop_src: string | null;
   fps: number;
 }
 

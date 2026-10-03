@@ -18,6 +18,7 @@ export const DEMO_SCRIPT: Script = {
   format: "wrong_right",
   series_label: "Не кажи так!",
   cover_title: "I am agree? Ні!",
+  backdrop_prompt: "",
   music_mood: "upbeat",
   scenes: [
     { ...base, kind: "hook", voice: "Дев'ять з десяти українців кажуть це неправильно.", headline: "9 з 10 кажуть це неправильно", mascot: "stand-surprised" },

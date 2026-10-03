@@ -64,6 +64,7 @@ export interface Scene {
 export interface Edu extends Captions {
   format: string;
   series_label: string;
+  backdrop_prompt?: string;
   scenes: Scene[];
 }
 export interface TextPost {
@@ -315,6 +316,9 @@ export function EduEditor({ value, onChange }: { value: Edu & ScriptJson; onChan
       <div className="grid gap-4 p-5 sm:p-6">
         <Field label="Плашка рубрики">
           <Input value={value.series_label} onChange={(e) => onChange({ ...value, series_label: e.target.value })} />
+        </Field>
+        <Field label="Фон відео" hint="опис локації англійською; порожньо — фірмовий фон">
+          <Input value={value.backdrop_prompt ?? ""} onChange={(e) => onChange({ ...value, backdrop_prompt: e.target.value })} />
         </Field>
         {value.scenes.map((sc, i) => (
           <div key={i} className="rounded-2xl border border-line p-4">
