@@ -105,18 +105,8 @@ export const BigCaps: React.FC<{ words: RenderWord[]; offset?: number; until?: n
         transform: `scale(${0.9 + appear * 0.1})`,
       }}
     >
-      <div
-        style={{
-          position: "absolute",
-          left: -30,
-          top: 70,
-          width: 0,
-          height: 0,
-          borderTop: "20px solid transparent",
-          borderBottom: "20px solid transparent",
-          borderRight: "34px solid white",
-        }}
-      />
+      {/* Tail: a rotated square overlapping the bubble — one solid shape, no seam between the parts. */}
+      <div style={{ position: "absolute", left: -15, top: 62, width: 38, height: 38, borderRadius: 6, background: C.white, transform: "rotate(45deg)" }} />
       <div style={{ display: "flex", flexWrap: "wrap", gap: "0 14px", fontFamily: body, fontWeight: 800, fontSize: 52, lineHeight: 1.16 }}>
         {chunk.map((w, i) => {
           const active = t >= w.start && t < w.end + 0.05;

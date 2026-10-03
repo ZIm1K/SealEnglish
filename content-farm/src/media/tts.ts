@@ -4,6 +4,7 @@
 import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 import fs from "node:fs";
 import path from "node:path";
+import { cacheGet, cacheGetJson, cacheKey, cachePut, cachePutJson } from "../cache.ts";
 import type { FarmSettings } from "../env.ts";
 import type { Budget } from "../llm.ts";
 import type { RenderWord, Speaker } from "../schema.ts";
@@ -106,7 +107,18 @@ export async function speak(
   context: { previous?: string; next?: string } = {},
   opts: { speed?: number; display?: string } = {},
 ): Promise<Speech> {
-  const result = await speakRaw(s, budget, text, outBase, speaker, delivery, context, opts.speed ?? 1);
+  // Same line, voice and tempo → same audio: reuse it instead of paying the TTS provider again.
+  const key = cacheKey("tts", s.tts_provider, s.eleven_model, s.eleven_voices[speaker], s.eleven_speed, speaker, text, opts.speed ?? 1, delivery);
+  const meta = await cacheGetJson<{ ext: string; seconds: number; words: RenderWord[] }>(key);
+  let result: Speech;
+  if (meta && (await cacheGet(key, meta.ext, `${outBase}.${meta.ext}`))) {
+    result = { file: `${outBase}.${meta.ext}`, seconds: meta.seconds, words: meta.words };
+  } else {
+    result = await speakRaw(s, budget, text, outBase, speaker, delivery, context, opts.speed ?? 1);
+    const ext = path.extname(result.file).slice(1);
+    await cachePut(key, ext, result.file, ext === "mp3" ? "audio/mpeg" : "audio/wav");
+    await cachePutJson(key, { ext, seconds: result.seconds, words: result.words });
+  }
   // The voice may say a stylized version (slurred gag, stretched word); captions show the script text.
   if (opts.display && opts.display !== text) {
     const first = result.words[0]?.start ?? 0;

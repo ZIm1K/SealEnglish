@@ -2,6 +2,7 @@
 // can frame them and speech bubbles never cover their face.
 import fs from "node:fs";
 import { z } from "zod";
+import { cacheGetJson, cacheKey, cachePutJson, fileHash } from "../cache.ts";
 import type { FarmSettings } from "../env.ts";
 import { structured, type Budget } from "../llm.ts";
 
@@ -15,6 +16,10 @@ const HeadSchema = z.object({
 export type Head = z.infer<typeof HeadSchema>;
 
 export async function locateHead(s: FarmSettings, budget: Budget, imageFile: string, description: string, side: string): Promise<Head | null> {
+  // Keyed by the picture itself: a cached background keeps its cached head position.
+  const key = cacheKey("head", fileHash(imageFile), side);
+  const cached = await cacheGetJson<Head>(key);
+  if (cached) return cached.found ? cached : null;
   try {
     const head = await structured({
       s,
@@ -26,9 +31,10 @@ export async function locateHead(s: FarmSettings, budget: Budget, imageFile: str
       prompt: `Scene description: ${description}\nFind the main background character who talks to the viewer (expected on the ${side} side). Return the position of their HEAD.`,
       images: [{ media_type: "image/jpeg", data: fs.readFileSync(imageFile).toString("base64") }],
     });
-    if (!head.found) return null;
     const c = (v: number) => Math.min(1, Math.max(0, v));
-    return { found: true, x: c(head.x), y: c(head.y), top: c(head.top), size: c(head.size) };
+    const result: Head = { found: head.found, x: c(head.x), y: c(head.y), top: c(head.top), size: c(head.size) };
+    await cachePutJson(key, result);
+    return result.found ? result : null;
   } catch {
     return null;
   }

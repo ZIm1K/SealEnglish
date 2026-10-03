@@ -265,17 +265,21 @@ const SpeechBubble: React.FC<{ beat: RenderBeat; prev: RenderBeat | null; loc: R
             {beat.translation}
           </div>
         )}
-        {/* Tail pointing at the speaker */}
+        {/* Tail pointing at the speaker: a rotated square overlapping the bubble, carrying the same
+            border on its two outer edges — one solid shape, no seam. */}
         <div
           style={{
             position: "absolute",
-            left: Math.min(bubbleW - 90, Math.max(50, ax - left - 28)),
-            ...(above ? { bottom: -40 } : { top: -40 }),
-            width: 0,
-            height: 0,
-            borderLeft: "28px solid transparent",
-            borderRight: "28px solid transparent",
-            ...(above ? { borderTop: "42px solid white" } : { borderBottom: "42px solid white" }),
+            left: Math.min(bubbleW - 100, Math.max(50, ax - left - 22)),
+            ...(above ? { bottom: -25 } : { top: -25 }),
+            width: 40,
+            height: 40,
+            background: C.white,
+            borderRadius: 5,
+            transform: "rotate(45deg)",
+            ...(above
+              ? { borderRight: `6px solid ${accent === C.white ? C.navy : accent}`, borderBottom: `6px solid ${accent === C.white ? C.navy : accent}` }
+              : { borderLeft: `6px solid ${accent === C.white ? C.navy : accent}`, borderTop: `6px solid ${accent === C.white ? C.navy : accent}` }),
           }}
         />
       </div>
