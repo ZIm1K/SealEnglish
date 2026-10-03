@@ -271,7 +271,7 @@ const SceneBody: React.FC<{ scene: RenderScene; index: number; listNumber: numbe
   }
 };
 
-const SceneView: React.FC<{ scene: RenderScene; index: number; total: number; label: string; handle: string; listNumber: number; seed: number }> = (
+const SceneView: React.FC<{ scene: RenderScene; index: number; total: number; label: string; handle: string; listNumber: number; seed: number; prevCta: boolean }> = (
   props,
 ) => {
   const { scene } = props;
@@ -291,7 +291,7 @@ const SceneView: React.FC<{ scene: RenderScene; index: number; total: number; la
       <SceneBody scene={scene} index={props.index} listNumber={props.listNumber} />
       {scene.kind !== "cta" && <BigCaps words={scene.words} until={scene.kind === "quiz" ? scene.reveal_start : Infinity} />}
       {scene.kind === "quiz" && <BigCaps words={scene.reveal_words} offset={scene.reveal_start} />}
-      <Host scene={scene} />
+      <Host scene={scene} first={props.index === 0} prevCta={props.prevCta} />
       {scene.voice_src && <Audio src={staticFile(scene.voice_src)} />}
       {scene.reveal_src && (
         <Sequence from={revealFrame} layout="none">
@@ -315,7 +315,7 @@ export const Short: React.FC<RenderProps> = ({ scenes, series_label, handle, mus
         if (scene.kind === "list_item") listCounter++;
         const el = (
           <Sequence key={i} from={from} durationInFrames={frames}>
-            <SceneView scene={scene} index={i} total={scenes.length} label={series_label} handle={handle} listNumber={listCounter} seed={i * 7} />
+            <SceneView scene={scene} index={i} total={scenes.length} label={series_label} handle={handle} listNumber={listCounter} seed={i * 7} prevCta={scenes[i - 1]?.kind === "cta"} />
           </Sequence>
         );
         from += frames;

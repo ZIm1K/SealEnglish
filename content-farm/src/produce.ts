@@ -303,7 +303,12 @@ async function eduMedia(s: FarmSettings, budget: Budget, script: Script, dir: st
   const backdrop = script.backdrop_prompt
     ? await tryDraw(s, budget, { prompt: `${script.backdrop_prompt}. Keep the lower-left area calm and uncluttered`, withSeal: false }, path.join(dir, "backdrop.jpg"), log)
     : null;
-  return buildRenderProps(script, audio, pickMusic(script.music_mood), 30, backdrop);
+  // Scripts without their own backdrop: stretch the first scene picture over the whole video
+  // instead of dropping back to the plain brand background after one scene.
+  const fallback = backdrop ? null : (audio.find((a) => a.image_src)?.image_src ?? null);
+  // The picture now lives in the shared backdrop; drawing it again per scene would change the dimming.
+  if (fallback) for (const a of audio) if (a.image_src === fallback) a.image_src = null;
+  return buildRenderProps(script, audio, pickMusic(script.music_mood), 30, backdrop ?? fallback);
 }
 
 async function storyMedia(s: FarmSettings, budget: Budget, story: Story, dir: string, log: Log): Promise<StoryProps> {
@@ -358,8 +363,10 @@ async function produceVideoItem(s: FarmSettings, item: ItemRow, log: Log) {
   const { idea, ...raw } = item.script as { idea?: Idea } & Record<string, unknown>;
   const script = detectScript(raw);
   if (script.kind !== "story" && script.kind !== "edu") throw new Error("очікувався сценарій відео");
+  // The cap applies to each production run; the item's cost_usd keeps the running total
+  // (script + every regeneration), so repeated regenerations never starve a run of its budget.
   const budget = new Budget(s.max_usd_per_video);
-  budget.spent = Number(item.cost_usd) || 0; // the script already cost something; the cap covers the whole video
+  const before = Number(item.cost_usd) || 0;
   const id = `${stamp()}-${slug(item.title) || "video"}`;
   const dir = jobDir(id);
   try {
@@ -375,12 +382,12 @@ async function produceVideoItem(s: FarmSettings, item: ItemRow, log: Log) {
       video_path: videoPath,
       cover_path: coverPath,
       duration_s: Math.round(out.seconds * 100) / 100,
-      cost_usd: round4(budget.spent),
+      cost_usd: round4(before + budget.spent),
       cost_breakdown: [...(item.cost_breakdown ?? []), ...budget.lines],
     });
     const sent = await notifyAdmins({
       title: item.title,
-      summary: `🎬 Відео готове · ${idea?.format ?? script.kind} · ${out.seconds.toFixed(0)} с · $${budget.spent.toFixed(3)}`,
+      summary: `🎬 Відео готове · ${idea?.format ?? script.kind} · ${out.seconds.toFixed(0)} с · цей запуск $${budget.spent.toFixed(3)}, разом $${(before + budget.spent).toFixed(3)}`,
       details: captionsDigest(script.data),
       videoFile: out.video,
     });

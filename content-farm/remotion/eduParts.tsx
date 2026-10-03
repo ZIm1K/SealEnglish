@@ -122,11 +122,13 @@ export const BigCaps: React.FC<{ words: RenderWord[]; offset?: number; until?: n
 };
 
 /** Sílі as the on-screen host: big, bounces while his line plays, blinks, centered on the CTA. */
-export const Host: React.FC<{ scene: RenderScene }> = ({ scene }) => {
+export const Host: React.FC<{ scene: RenderScene; first: boolean; prevCta: boolean }> = ({ scene, first, prevCta }) => {
   const f = useCurrentFrame();
   const { fps } = useVideoConfig();
   const t = f / fps;
-  const enter = spring({ frame: f, fps, config: { damping: 12, stiffness: 150, mass: 0.7 } });
+  // He walks in once at the start (and when he moves to the centre for the CTA) — not on every scene.
+  const moves = first || (scene.kind === "cta") !== prevCta;
+  const enter = moves ? spring({ frame: f, fps, config: { damping: 12, stiffness: 150, mass: 0.7 } }) : 1;
   const voiceEnd = scene.words.at(-1)?.end ?? 0;
   const revealEnd = scene.reveal_start + (scene.reveal_words.at(-1)?.end ?? 0);
   const talking = t < voiceEnd || (scene.kind === "quiz" && t >= scene.reveal_start && t < revealEnd);
