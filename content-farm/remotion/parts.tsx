@@ -8,18 +8,18 @@ import { body, C, display } from "./theme.ts";
 export const BrandBackground: React.FC<{ seed: number }> = ({ seed }) => {
   const f = useCurrentFrame();
   const t = f / 30;
+  // Soft glows as radial gradients: a CSS blur filter on shapes this large costs seconds per
+  // frame in software rendering (Cloud Run has no GPU); gradients look the same and render fast.
   const blob = (x: number, y: number, r: number, color: string, speed: number, phase: number) => (
     <div
       style={{
         position: "absolute",
-        left: x + Math.sin(t * speed + phase + seed) * 120,
-        top: y + Math.cos(t * speed * 0.8 + phase + seed) * 140,
-        width: r,
-        height: r,
-        borderRadius: "50%",
-        background: color,
-        filter: "blur(120px)",
-        opacity: 0.55,
+        left: x - r * 0.35 + Math.sin(t * speed + phase + seed) * 120,
+        top: y - r * 0.35 + Math.cos(t * speed * 0.8 + phase + seed) * 140,
+        width: r * 1.7,
+        height: r * 1.7,
+        background: `radial-gradient(circle closest-side, ${color} 0%, ${color}99 30%, ${color}00 100%)`,
+        opacity: 0.6,
       }}
     />
   );
