@@ -59,6 +59,9 @@ export const CHANNEL_LABEL: Record<Channel, string> = {
 /** Set after the first failure (e.g. provider down, no credits) so a run doesn't retry per scene. */
 let ttsDown = false;
 let imagesDown = false;
+let imageError = "";
+/** Posts are image-first: without the picture they must not be reported as ready. */
+const noImage = () => new Error(`Не вдалося згенерувати картинку${imageError ? ` (${imageError})` : ""}. Перевірте баланс генератора зображень і затвердіть ще раз.`);
 
 async function tryDraw(s: FarmSettings, budget: Budget, req: FrameRequest, file: string, log: Log): Promise<string | null> {
   if (imagesDown || !(await canDraw(s)) || !budget.canAfford(frameCost(s, req.withSeal) + 0.01)) return null;
@@ -68,6 +71,7 @@ async function tryDraw(s: FarmSettings, budget: Budget, req: FrameRequest, file:
   } catch (e) {
     if (!imagesDown) log(`  ⚠ ілюстрації недоступні в цьому запуску: ${(e as Error).message.slice(0, 160)}`);
     imagesDown = true;
+    imageError = (e as Error).message.replace(/\s+/g, " ").slice(0, 220);
     return null;
   }
 }
@@ -397,10 +401,12 @@ async function producePostItem(s: FarmSettings, item: ItemRow, log: Log) {
       const prompt = script.data.image_prompt;
       if (prompt) {
         const src = await tryDraw(s, budget, { prompt, withSeal: false, aspect: "4:5" }, path.join(dir, "img.jpg"), log);
-        if (src) imageFile = path.join(PUBLIC, src);
+        if (!src) throw noImage();
+        imageFile = path.join(PUBLIC, src);
       }
     } else if (script.kind === "instagram") {
       const bg = await tryDraw(s, budget, { prompt: script.data.image_prompt, withSeal: false, aspect: "4:5" }, path.join(dir, "bg.jpg"), log);
+      if (!bg) throw noImage();
       imageFile = path.join(dir, "card.jpg");
       await renderIgCard(await makeBundle(), { image_src: bg, headline: script.data.image_headline, sub: script.data.image_sub, handle: HANDLES.instagram }, imageFile);
     }
