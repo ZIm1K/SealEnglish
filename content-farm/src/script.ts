@@ -1,5 +1,5 @@
 // Stage 3: idea → full video script + captions for every platform (and text-only posts).
-import { BRAND_BIBLE, HANDLES, HUMAN_VOICE } from "./brand.ts";
+import { BRAND_BIBLE, CTA_VOICE, HANDLES, HUMAN_VOICE } from "./brand.ts";
 import type { FarmSettings } from "./env.ts";
 import { humanize } from "./humanize.ts";
 import { structured, type Budget } from "./llm.ts";
@@ -35,8 +35,8 @@ ${HUMAN_VOICE}
 - headline — дуже коротко, читається за пів секунди. Не дублюй voice слово в слово.
 - background=image — максимум 2 сцени на відео, лише якщо ілюстрація справді підсилює (місце, ситуація). Решта — brand.
 - Загальна озвучка 55–95 слів.
-- Остання сцена cta: заклик у профіль і на сайт. headline на кшталт «Пробний урок — безкоштовно», sub — «${HANDLES.site}»
-  (коротко: це кнопка на екрані), у voice — «посилання в профілі». Бота не згадуй.
+- Остання сцена cta: headline на кшталт «Пробний урок — безкоштовно»; voice — «${CTA_VOICE}» (можна додати перед цим одне
+  коротке речення-місток). На екрані автоматично показуються сайт і бот у Telegram — у sub їх не дублюй (sub = '').
 - backdrop_prompt — один фон-локація на все відео під тему (кімната школяра, клас, аеропорт, кав'ярня…).`;
 
 export async function writeScript(s: FarmSettings, budget: Budget, idea: Idea): Promise<Script> {
@@ -79,9 +79,9 @@ export function normalizeScript(script: Script): Script {
   if (scenes.at(-1)?.kind !== "cta") {
     scenes.push({
       kind: "cta",
-      voice: "Хочеш говорити так само легко? Перший урок у Seal English безкоштовний — посилання в профілі.",
+      voice: `Перший урок безкоштовний. ${CTA_VOICE}`,
       headline: "Пробний урок — безкоштовно",
-      sub: HANDLES.site,
+      sub: "",
       english: "",
       wrong: "",
       right: "",
@@ -234,8 +234,8 @@ ${HUMAN_VOICE}
 - Threads: лише текст. Як думка людини вголос: коротко, з характером, без емодзі-списків, закінчується питанням або
   спірною тезою, на яку хочеться відповісти. Без хештегів.
 - Telegram: пост каналу школи. Заголовок-гачок першим рядком, далі користь (історія / розбір / 3–5 фраз з прикладами),
-  наприкінці м'який CTA: пробний урок на ${HANDLES.site} (можна додати бота ${HANDLES.bot}). До картинки — image_prompt.
-- В Instagram і Threads заклик — «посилання в профілі» / ${HANDLES.site}; бота там не згадуємо.
+  наприкінці м'який CTA: запис на уроки на ${HANDLES.site} або через бот ${HANDLES.bot}. До картинки — image_prompt.
+- В Instagram і Threads заклик — сайт ${HANDLES.site} («посилання в профілі») або «наш бот у Телеграмі ${HANDLES.bot}».
 - Instagram: упор на картинку. На картинці — великий хук (image_headline) і, за потреби, англ. фраза з перекладом
   (image_sub); фон — image_prompt. Під фото — допис, що розгортає думку, з прикладами і питанням до коментарів.
 - Три пости — на ТРИ різні теми з трьох ідей (по одній на мережу), кожна ідея — у найкращій для неї мережі.`;

@@ -1,5 +1,6 @@
 import React from "react";
 import { AbsoluteFill, Audio, interpolate, Sequence, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
+import { HANDLES } from "../src/brand.ts";
 import type { RenderProps, RenderScene } from "../src/schema.ts";
 import { Backdrop, BigCaps, Host, pill, SeriesChip, Stage, unnumbered } from "./eduParts.tsx";
 import { EnglishPill, ImageBackground, Mark, PopText } from "./parts.tsx";
@@ -245,8 +246,28 @@ const SceneBody: React.FC<{ scene: RenderScene; index: number; listNumber: numbe
                 boxShadow: "0 18px 50px rgba(251,123,99,0.5)",
               }}
             >
-              {/* Scripts written before the CTA rule pointed at the Telegram bot; the feed CTA is the site. */}
-              {!scene.sub || /bot/i.test(scene.sub) ? "sealenglish.school" : scene.sub}
+              {/* The CTA is fixed brand-wide: the site first, the Telegram bot second. */}
+              {HANDLES.site}
+            </div>
+            <div
+              style={{
+                alignSelf: "center",
+                marginTop: 26,
+                display: "flex",
+                alignItems: "center",
+                gap: 14,
+                padding: "16px 30px",
+                borderRadius: 999,
+                background: "rgba(255,255,255,0.14)",
+                border: "2px solid rgba(255,255,255,0.3)",
+                color: C.white,
+                fontFamily: body,
+                fontWeight: 800,
+                fontSize: 36,
+              }}
+            >
+              <span style={{ padding: "4px 14px", borderRadius: 999, background: C.sky, color: C.navy, fontSize: 28 }}>Telegram</span>
+              {HANDLES.bot}
             </div>
           </Stage>
         </>

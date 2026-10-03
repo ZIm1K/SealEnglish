@@ -6,7 +6,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { HANDLES } from "./brand.ts";
+import { CTA_VOICE, HANDLES } from "./brand.ts";
 import { ROOT, type FarmSettings } from "./env.ts";
 import { buildRenderProps, buildStoryProps, type BeatMedia, type SceneAudio } from "./layout.ts";
 import { Budget } from "./llm.ts";
@@ -285,6 +285,9 @@ async function eduMedia(s: FarmSettings, budget: Budget, script: Script, dir: st
   for (const [i, scene] of script.scenes.entries()) {
     const a: SceneAudio = { voice_src: null, voice_seconds: null, reveal_src: null, reveal_seconds: null, image_src: null };
     // Sílі hosts the edu rubrics, so he voices them.
+    // The CTA line is fixed brand-wide (site first, then the Telegram bot); scripts that already
+    // say both keep their wording, older ones that only named the bot get the standard line.
+    if (scene.kind === "cta" && !(/сайт/i.test(scene.voice) && /телеграм|telegram/i.test(scene.voice))) scene.voice = CTA_VOICE;
     const v = await trySpeak(s, budget, scene.voice, path.join(dir, `s${i}`), log, "seal");
     if (v) Object.assign(a, { voice_src: rel(v.file), voice_seconds: v.seconds });
     if (scene.kind === "quiz" && scene.reveal_voice) {
