@@ -62,7 +62,11 @@ export async function renderVideo(serveUrl: string, props: RenderProps | StoryPr
     composition,
     serveUrl,
     codec: "h264",
-    crf: 20,
+    // Social platforms re-encode every upload: give them a clean, standard source
+    // (BT.709, 4:2:0 limited range, near-transparent quality) so their transcode keeps the detail.
+    crf: 17,
+    pixelFormat: "yuv420p",
+    colorSpace: "bt709",
     audioCodec: "aac",
     // Remotion defaults to half the cores; use all of them (Cloud Run gives 2 vCPU).
     concurrency: os.cpus().length,
