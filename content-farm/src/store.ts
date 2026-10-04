@@ -45,6 +45,15 @@ export async function saveStoryBank(report: string) {
   await sb.from("app_settings").upsert({ key: "content_farm_story_bank", value, is_public: false, updated_at: new Date().toISOString() });
 }
 
+/** Hours since the last pack started (failed runs don't count); null when there was none. */
+export async function hoursSinceLastPack(): Promise<number | null> {
+  const sb = supabase();
+  if (!sb) return null;
+  const { data } = await sb.from("content_runs").select("started_at").in("kind", ["pack", "daily"]).neq("status", "failed").order("started_at", { ascending: false }).limit(1);
+  const at = data?.[0]?.started_at as string | undefined;
+  return at ? (Date.now() - new Date(at).getTime()) / 36e5 : null;
+}
+
 export async function recentTitles(limit = 60): Promise<string[]> {
   const sb = supabase();
   if (!sb) return [];

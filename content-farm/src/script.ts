@@ -1,4 +1,6 @@
 // Stage 3: idea → full video script + captions for every platform (and text-only posts).
+import { createHash } from "node:crypto";
+import { z } from "zod";
 import { BRAND_BIBLE, CTA_VOICE, HANDLES, HUMAN_VOICE } from "./brand.ts";
 import type { FarmSettings } from "./env.ts";
 import { humanize } from "./humanize.ts";
@@ -210,6 +212,62 @@ export function detectScript(raw: Record<string, unknown>): AnyScript {
   if (Array.isArray(raw.beats)) return { kind: "story", data: rest as unknown as Story };
   if (Array.isArray(raw.scenes)) return { kind: "edu", data: rest as unknown as Script };
   return { kind: "text", data: rest as unknown as TextPost };
+}
+
+// ───────────── Captions that follow hand-edited lines ─────────────
+// The owner edits lines in the cabinet; the texts around the video (cover, hook, captions) were
+// written for the old lines and would go out contradicting it. The fingerprints saved with the
+// script tell, at production time, whether the lines changed and which captions are still the
+// farm's own wording — only those are brought in line; anything the owner retyped is left alone.
+
+const CAPTION_FIELDS = {
+  story: ["hook_overlay", "cover_title", "ending_question", "caption_tiktok", "caption_instagram"],
+  edu: ["cover_title", "caption_tiktok", "caption_instagram"],
+} as const;
+
+export interface ScriptMeta {
+  lines: string;
+  captions: Record<string, string>;
+}
+
+const fingerprint = (v: unknown) => createHash("sha1").update(JSON.stringify(v)).digest("hex").slice(0, 12);
+
+function spokenLines(script: AnyScript): string[] {
+  if (script.kind === "story") return script.data.beats.map((b) => `${b.speaker_name || b.speaker}: ${b.narration}${b.translation ? ` (${b.translation})` : ""}`);
+  if (script.kind === "edu") return script.data.scenes.flatMap((sc) => [sc.headline, sc.voice, sc.reveal_voice].filter(Boolean));
+  return [];
+}
+
+/** Fingerprints stored as `_meta` next to a video script when the farm writes or rewrites it. */
+export function scriptMeta(script: AnyScript): ScriptMeta | null {
+  if (script.kind !== "story" && script.kind !== "edu") return null;
+  const data = script.data as unknown as Record<string, string>;
+  return { lines: fingerprint(spokenLines(script)), captions: Object.fromEntries(CAPTION_FIELDS[script.kind].map((f) => [f, fingerprint(data[f] ?? "")])) };
+}
+
+/** Returns the caption fields that had to change to match hand-edited lines, or null when nothing did. */
+export async function refreshCaptions(s: FarmSettings, budget: Budget, script: AnyScript, meta: ScriptMeta): Promise<Record<string, string> | null> {
+  if (script.kind !== "story" && script.kind !== "edu") return null;
+  const lines = spokenLines(script);
+  if (fingerprint(lines) === meta.lines) return null;
+  const data = script.data as unknown as Record<string, string>;
+  const untouched = CAPTION_FIELDS[script.kind].filter((f) => fingerprint(data[f] ?? "") === meta.captions[f]);
+  if (!untouched.length) return null;
+  const current = Object.fromEntries(untouched.map((f) => [f, data[f] ?? ""]));
+  const next = await structured({
+    s,
+    budget,
+    what: "refresh_captions",
+    cheap: true,
+    effort: "low",
+    schema: z.object(Object.fromEntries(untouched.map((f) => [f, z.string()]))),
+    system: `Ти — редактор SMM-команди. Репліки короткого відео відредагували вручну, а тексти довкола нього (обкладинка, хук, підписи, питання до коментарів) лишились від попередньої версії.
+Звір кожен текст із новими репліками. Якщо він суперечить їм, згадує те, чого в ролику вже немає, або ставить питання, якого в ролику не звучить, — перепиши мінімально, зберігши стиль, довжину, емодзі й заклик до дії. Якщо текст узгоджений — поверни його дослівно.
+ending_question має збігатися з питанням, яким закінчується остання репліка.`,
+    prompt: `Репліки відео:\n${lines.join("\n")}\n\nТексти для перевірки (JSON):\n${JSON.stringify(current, null, 2)}`,
+  });
+  const changed = Object.fromEntries(Object.entries(next as Record<string, string>).filter(([f, v]) => v.trim() && v !== current[f]));
+  return Object.keys(changed).length ? changed : null;
 }
 
 /** Owner asked for changes in the cabinet: rewrite the script following their note, keep the rest. */

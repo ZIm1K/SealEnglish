@@ -6,7 +6,7 @@ import { Budget } from "./llm.ts";
 import { ideate, NO_SCAN, scanTrends } from "./plan.ts";
 import { pickPackIdeas, produceApproved, rewriteRequested, writePack, writeScripts } from "./produce.ts";
 import { makeBundle, preparePublic, renderVideo } from "./render.ts";
-import { finishRun, freshIdeas, recentTitles, saveIdeas, startRun } from "./store.ts";
+import { finishRun, freshIdeas, hoursSinceLastPack, recentTitles, saveIdeas, startRun } from "./store.ts";
 
 const [, , command = "help", ...rest] = process.argv;
 const flags: Record<string, string> = {};
@@ -44,6 +44,12 @@ async function main() {
     case "custom": {
       // pack (alias daily): trends → ideas → one pack (TikTok story, Stories edu, Threads, Telegram, Instagram).
       // custom: one video script on --topic (--format story|edu). scan: ideas only.
+      if ((command === "pack" || command === "daily") && flags.force !== "true") {
+        // The scheduler wakes the job every morning; packs are 48 hours apart whatever the calendar
+        // says (a cron "every 2nd day of the month" fires on the 31st and again on the 1st).
+        const hours = await hoursSinceLastPack();
+        if (hours !== null && hours < 47) return log(`Пропускаю: останній пакет був ${hours.toFixed(0)} год тому (між пакетами 48 год). Запустити все одно: --force`);
+      }
       const runId = await startRun(command);
       const budget = new Budget(Infinity);
       try {
@@ -134,6 +140,21 @@ async function main() {
       return;
     }
 
+    case "kick-setup": {
+      // Stores a Google service-account key in the Vault so the farm-kick Edge Function can start
+      // this job right after an approval. The key file is removed once it is stored.
+      const sb = supabase();
+      if (!sb || !flags.key || flags.key === "true") throw new Error("Вкажіть файл ключа: npm run farm -- kick-setup --key seal-farm-kick.json");
+      const fs = await import("node:fs");
+      const key = JSON.parse(fs.readFileSync(path.resolve(flags.key), "utf8")) as { client_email?: string; private_key?: string };
+      if (!key.client_email || !key.private_key) throw new Error("Це не JSON-ключ сервісного акаунта Google");
+      const { error } = await sb.rpc("set_app_secret", { p_name: "gcp_farm_service_account", p_value: JSON.stringify({ client_email: key.client_email, private_key: key.private_key }) });
+      if (error) throw error;
+      fs.rmSync(path.resolve(flags.key));
+      log(`Ключ ${key.client_email} збережено у Vault, файл видалено.`);
+      return;
+    }
+
     case "voice-design": {
       // 1) `voice-design` → previews into out/voice-previews; 2) `voice-design --pick N` → saves voice N for Sílі.
       const eleven = await import("./media/eleven.ts");
@@ -198,6 +219,7 @@ async function main() {
   npm run farm -- custom --topic "…" [--format story|edu] [--trends]
       відео на задану тему: story — вірусна історія (за замовчуванням), edu — навчальний ролик
   npm run farm -- voices                     список голосів ElevenLabs (для вибору голосу кожної ролі)
+  npm run farm -- kick-setup --key <file>    зберегти ключ сервісного акаунта, щоб затвердження одразу запускало ферму
   npm run farm -- drive-migrate              скопіювати відео із Supabase на Google Drive
   npm run farm -- storage-cleanup [--yes]    перелік (з --yes — видалення) відео в Supabase, які вже не потрібні
   npm run farm -- demo                       тестовий рендер без API-ключів

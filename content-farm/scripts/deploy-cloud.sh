@@ -54,10 +54,12 @@ schedule() { # name, cron, body
     gcloud scheduler jobs create http "$1" "${args[@]}" --headers "Content-Type=application/json" --quiet >/dev/null
   fi
 }
-# Pack: 09:00 Kyiv every other day.
-schedule seal-farm-pack "0 9 */2 * *" '{"overrides":{"containerOverrides":[{"args":["pack"]}]}}'
-# Work: approved items are produced within ~30 min (08:00–23:30); idle runs exit in seconds.
-schedule seal-farm-work "*/30 8-23 * * *" '{}'
+# Pack: the job wakes at 06:00 Kyiv every day and skips unless 47 h passed since the last pack
+# (src/cli.ts), so packs are a true 48 hours apart and ready by the morning.
+schedule seal-farm-pack "0 6 * * *" '{"overrides":{"containerOverrides":[{"args":["pack"]}]}}'
+# Work: an approval starts the job at once (farm-kick Edge Function); this tick is the safety net
+# and what retries items after a provider outage. Idle runs exit in seconds.
+schedule seal-farm-work "*/30 6-23 * * *" '{}'
 
 rm -rf assets/mascot3d
 echo "✔ Deployed. Manual run: gcloud run jobs execute $JOB --region $REGION --args=pack"

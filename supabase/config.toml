@@ -21,6 +21,9 @@ verify_jwt = false
 [functions.google-oauth]
 verify_jwt = false
 
+[functions.farm-kick]
+verify_jwt = false
+
 [functions.ai-tutor]
 verify_jwt = false
 

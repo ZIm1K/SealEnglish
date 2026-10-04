@@ -22,11 +22,14 @@ import {
   detectScript,
   normalizeScript,
   normalizeStory,
+  refreshCaptions,
   rewriteWithNote,
+  scriptMeta,
   writePostsBundle,
   writeScript,
   writeStory,
   type AnyScript,
+  type ScriptMeta,
 } from "./script.ts";
 import { claimItem, itemsWithStatus, markIdea, saveItem, siteUrl, updateItem, upload, writeLocal, type ItemRow, type StoredIdea } from "./store.ts";
 
@@ -197,7 +200,7 @@ async function saveScriptItem(
     kind,
     status: "script",
     title,
-    script: { ...data, idea: stored?.idea },
+    script: { ...data, idea: stored?.idea, ...(kind === "video" ? { _meta: scriptMeta(detectScript(data)) } : {}) },
     cost_usd: round4(budget.spent),
     cost_breakdown: budget.lines,
   };
@@ -300,7 +303,7 @@ export async function rewriteRequested(s: FarmSettings, log: Log): Promise<numbe
       const next = await rewriteWithNote(s, budget, detectScript({ ...raw, channel }), item.review_note ?? "");
       await updateItem(item.id, {
         status: "script",
-        script: { ...(channel ? { channel } : {}), ...next.data, idea },
+        script: { ...(channel ? { channel } : {}), ...next.data, idea, ...(scriptMeta(next) ? { _meta: scriptMeta(next) } : {}) },
         cost_usd: round4(Number(item.cost_usd) + budget.spent),
         cost_breakdown: [...(item.cost_breakdown ?? []), ...budget.lines],
       });
@@ -411,7 +414,7 @@ function captionsDigest(script: Script | Story) {
 }
 
 async function produceVideoItem(s: FarmSettings, item: ItemRow, log: Log) {
-  const { idea, ...raw } = item.script as { idea?: Idea } & Record<string, unknown>;
+  const { idea, _meta, ...raw } = item.script as { idea?: Idea; _meta?: ScriptMeta } & Record<string, unknown>;
   const script = detectScript(raw);
   if (script.kind !== "story" && script.kind !== "edu") throw new Error("очікувався сценарій відео");
   // The cap applies to each production run; the item's cost_usd keeps the running total
@@ -422,6 +425,13 @@ async function produceVideoItem(s: FarmSettings, item: ItemRow, log: Log) {
   const dir = jobDir(id);
   try {
     log(`🎬 ${item.title}`);
+    // Lines edited by hand since the farm wrote the script: bring its own captions in line first.
+    const fixed = _meta ? await refreshCaptions(s, budget, script, _meta).catch(() => null) : null;
+    if (fixed) {
+      Object.assign(script.data, fixed);
+      await updateItem(item.id, { script: { ...script.data, idea, _meta: scriptMeta(script) } });
+      log(`  підписи узгоджено з новими репліками: ${Object.keys(fixed).join(", ")}`);
+    }
     standInVoices.clear();
     const props = script.kind === "story" ? await storyMedia(s, budget, script.data, dir, log) : await eduMedia(s, budget, script.data, dir, log);
     const voiceNote = standInVoices.size ? `\n⚠ Частину реплік озвучив запасний голос (${[...standInVoices].join(", ")}) — ${s.tts_provider} був недоступний` : "";
