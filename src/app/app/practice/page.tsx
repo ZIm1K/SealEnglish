@@ -603,7 +603,7 @@ function SessionDialog({ id, onClose }: { id: string | null; onClose: () => void
               </div>
               <div className="max-h-[60vh] space-y-2 overflow-y-auto rounded-2xl bg-canvas p-3">
                 {turns.length === 0 ? (
-                  <p className="p-4 text-center text-sm text-mute">{me.role === "teacher" ? "Текст розмови видалено (зберігається 90 днів)." : "Зміст переписки бачить лише викладач учня — менеджерам доступні підсумки."}</p>
+                  <p className="p-4 text-center text-sm text-mute">{me.role === "teacher" ? "Текст розмови видалено (зберігається 90 днів)." : "Зміст переписки бачить лише викладач учня (зберігається 90 днів) — менеджерам доступні підсумки."}</p>
                 ) : (
                   turns.map((t) => (
                     <div key={t.id} className={cn("rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap", t.role === "user" ? "ml-8 bg-ocean-800 text-white" : "mr-8 bg-white ring-1 ring-line", t.flagged && "ring-2 ring-amber-400")}>
