@@ -146,7 +146,7 @@ async function speakRaw(
   speed: number,
 ): Promise<Speech> {
   const v = VOICES[speaker];
-  const order = [s.tts_provider, "eleven", "gemini", "edge", "openai"].filter((p, i, a) => a.indexOf(p) === i);
+  const order = (s.tts_fallback ? [s.tts_provider, "eleven", "gemini", "edge", "openai"] : [s.tts_provider]).filter((p, i, a) => a.indexOf(p) === i);
   // Language follows the text itself: Ukrainian heroes sometimes say English lines.
   const lang: "uk" | "en" = /[а-яіїєґ]/i.test(text) ? "uk" : "en";
   let lastErr: unknown;
@@ -174,7 +174,7 @@ async function speakRaw(
       lastErr = e;
     }
   }
-  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+  throw lastErr instanceof Error ? lastErr : new Error(`${s.tts_provider}: немає ключа озвучки`);
 }
 
 export const relTo = (root: string, abs: string) => path.relative(root, abs).split(path.sep).join("/");

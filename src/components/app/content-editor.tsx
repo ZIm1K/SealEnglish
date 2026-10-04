@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { toast } from "sonner";
 import { ArrowDown, ArrowUp, Copy, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -386,6 +387,10 @@ export function TextEditor({ value, onChange }: { value: TextPost & ScriptJson; 
 export function CaptionsEditor({ value, onChange }: { value: Captions; onChange: (c: Partial<Captions>) => void }) {
   const copy = (text: string) => navigator.clipboard.writeText(text).then(() => toast.success("Скопійовано"));
   const tags = value.hashtags.map((h) => `#${h}`).join(" ");
+  // The farm no longer writes Threads/Telegram texts into video scripts (packs carry dedicated
+  // posts); older items that have them keep the fields. Decided once so a field doesn't vanish
+  // while its text is being deleted.
+  const [crossPosts] = useState(() => Boolean(value.threads_post || value.telegram_post));
   const box = (label: string, key: keyof Captions, rows: number, withTags = false) => (
     <Field
       label={
@@ -406,8 +411,8 @@ export function CaptionsEditor({ value, onChange }: { value: Captions; onChange:
       <div className="grid gap-4 p-5 sm:p-6 lg:grid-cols-2">
         {box("TikTok", "caption_tiktok", 3, true)}
         {box("Instagram Reels", "caption_instagram", 5, true)}
-        {box("Threads", "threads_post", 5)}
-        {box("Telegram", "telegram_post", 5)}
+        {crossPosts && box("Threads", "threads_post", 5)}
+        {crossPosts && box("Telegram", "telegram_post", 5)}
         <Field label="Хештеги" hint="через пробіл">
           <Input value={value.hashtags.join(" ")} onChange={(e) => onChange({ hashtags: e.target.value.split(/\s+/).map((h) => h.replace(/^#/, "")).filter(Boolean) })} />
         </Field>

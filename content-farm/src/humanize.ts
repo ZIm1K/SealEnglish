@@ -28,19 +28,25 @@ ${BRAND_BIBLE}`;
 
 export async function humanize<S extends z.ZodType>(s: FarmSettings, budget: Budget, schema: S, draft: z.infer<S>, what: string): Promise<z.infer<S>> {
   if (!s.humanize) return draft;
-  try {
-    return await structured({
-      s,
-      budget,
-      what: `humanize_${what}`,
-      cheap: true,
-      schema,
-      effort: "low",
-      system: SYSTEM,
-      prompt: `Відредагуй цей JSON:\n${JSON.stringify(draft, null, 2)}`,
-    });
-  } catch {
-    // The draft is still usable; a failed polish must not cost the whole video.
-    return draft;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await structured({
+        s,
+        budget,
+        what: `humanize_${what}`,
+        cheap: true,
+        schema,
+        effort: "low",
+        system: SYSTEM,
+        prompt: `Відредагуй цей JSON:\n${JSON.stringify(draft, null, 2)}`,
+      });
+    } catch (e) {
+      if (attempt < 2) continue;
+      // The draft is still usable; a failed polish must not cost the whole item — but the owner
+      // should know this text never went through the editor.
+      budget.notes.push(`без редакторського проходу (редактор двічі не відповів: ${(e as Error).message.slice(0, 120)})`);
+      budget.add(`humanize_${what}_failed`, 0);
+      return draft;
+    }
   }
 }

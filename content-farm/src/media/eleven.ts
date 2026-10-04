@@ -72,6 +72,23 @@ export async function speakEleven(
   return { seconds: seconds + 0.05, words };
 }
 
+/**
+ * Characters left in the current billing period, or null when it can't be read (no key, or the
+ * key lacks the "User: Read" permission — then the farm simply doesn't warn in advance).
+ */
+export async function elevenCharactersLeft(): Promise<number | null> {
+  const key = await secret("eleven");
+  if (!key) return null;
+  try {
+    const res = await fetch("https://api.elevenlabs.io/v1/user/subscription", { headers: { "xi-api-key": key } });
+    if (!res.ok) return null;
+    const sub = (await res.json()) as { character_count?: number; character_limit?: number };
+    return typeof sub.character_count === "number" && typeof sub.character_limit === "number" ? sub.character_limit - sub.character_count : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Lists the account's voices (premade + added from the Voice Library) — `npm run farm -- voices`. */
 export async function listElevenVoices(): Promise<{ voice_id: string; name: string; labels?: Record<string, string> }[]> {
   const key = await secret("eleven");

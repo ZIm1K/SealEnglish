@@ -91,6 +91,13 @@ export interface FarmSettings {
   ai_images_per_video: number;
   /** "eleven" (ElevenLabs — chosen by the owner) · "gemini" · "edge" (free fallback) · "openai". */
   tts_provider: "eleven" | "gemini" | "edge" | "openai";
+  /**
+   * Let another engine voice a line when tts_provider fails. Off: the owner rejected the stand-in
+   * voices, so a video waits for the real one instead of shipping with a different voice.
+   */
+  tts_fallback: boolean;
+  /** How many production runs an item gets when a provider is temporarily down, before it is marked failed. */
+  production_attempts: number;
   eleven_model: string;
   eleven_speed: number;
   /** ElevenLabs voice_id per role; override any of them in app_settings.content_farm.eleven_voices. */
@@ -143,6 +150,8 @@ export const DEFAULT_SETTINGS: FarmSettings = {
   video_cross_posts: false,
   ai_images_per_video: 2,
   tts_provider: "eleven",
+  tts_fallback: false,
+  production_attempts: 3,
   eleven_model: "eleven_v4",
   eleven_speed: 0.98,
   // Premade ElevenLabs voices (multilingual). Replace with Voice Library picks via `npm run farm -- voices`.
@@ -166,7 +175,7 @@ export const DEFAULT_SETTINGS: FarmSettings = {
   edge_voice: "uk-UA-OstapNeural",
   edge_rate: "+14%",
   story_share: 0.7,
-  images_per_story: 8,
+  images_per_story: 4,
   tts_model: "gpt-4o-mini-tts",
   tts_voice: "coral",
   image_model: "gpt-image-1-mini",

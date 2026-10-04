@@ -27,15 +27,19 @@ export async function scanTrends(s: FarmSettings, budget: Budget, log: (m: strin
   const warnings: string[] = [];
   // A report written without a single successful search is the model's memory dressed up as
   // research: drop it so ideation doesn't treat it as verified, and tell the owner.
-  const verified = (r: { text: string; searches: number }, name: string) => {
+  const verified = async (call: Promise<{ text: string; searches: number }>, name: string) => {
+    // An API error in one research step must not cost the whole pack: the saved story bank and the
+    // raw Google Trends signals still make a usable (if less fresh) one.
+    const r = await call.catch((e) => ({ text: "", searches: 0, error: (e as Error).message.slice(0, 160) }));
     if (r.searches) return r.text;
-    warnings.push(`веб-пошук не дав результатів (${name}) — ідеї без свіжих підтверджених джерел, факти перевірте вручну`);
+    const why = "error" in r ? `дослідження впало: ${r.error}` : "веб-пошук не дав результатів";
+    warnings.push(`${why} (${name}) — ідеї без свіжих підтверджених джерел, факти перевірте вручну`);
     log(`  ⚠ ${warnings.at(-1)}`);
     return "";
   };
 
   log(`Claude шукає соцмережеві тренди (до ${s.web_searches} пошуків)…`);
-  const trends = await research({
+  const trends = research({
     s,
     budget,
     what: "trend_scan",
@@ -51,7 +55,7 @@ export async function scanTrends(s: FarmSettings, budget: Budget, log: (m: strin
 Виключи політику, війну, трагедії й усе російське.
 Формат відповіді: маркований список 15–25 пунктів. Кожен пункт: назва тренду — що це — чому актуально зараз — джерело.`,
   });
-  const web_report = verified(trends, "тренди");
+  const web_report = await verified(trends, "тренди");
 
   // One research finds 10–12 stories and a pack uses one or two, so the report is kept and reused
   // (already-made ideas are excluded by title) instead of paying for a new search every pack.
@@ -62,7 +66,7 @@ export async function scanTrends(s: FarmSettings, budget: Budget, log: (m: strin
     return { signals, web_report, story_report: bank.report, warnings };
   }
   log("Claude шукає сировину для вірусних історій (перевірені факти з джерелами)…");
-  const stories = await research({
+  const stories = research({
     s,
     budget,
     what: "story_research",
@@ -79,7 +83,7 @@ export async function scanTrends(s: FarmSettings, budget: Budget, log: (m: strin
 Виключи політику, війну, трагедії, смерті, все російське.
 Для кожної: заголовок-хук — 3–6 ключових фактів (хто, де, коли, цифри) — англійська пасхалка — 1–2 URL джерел.`,
   });
-  const story_report = verified(stories, "історії");
+  const story_report = await verified(stories, "історії");
   if (story_report) await saveStoryBank(story_report);
   // Research failed this time: an older verified report still beats ideas from memory.
   return { signals, web_report, story_report: story_report || bank?.report || "", warnings };

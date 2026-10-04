@@ -119,6 +119,8 @@ export interface ItemRow {
   title: string;
   script: Record<string, unknown>;
   review_note: string | null;
+  /** Production runs that failed on a passing provider outage since the last approval. */
+  attempts: number | null;
   cost_usd: number;
   cost_breakdown: { what: string; usd: number }[] | null;
 }
@@ -128,7 +130,7 @@ export async function itemsWithStatus(statuses: string[], limit = 10): Promise<I
   if (!sb) return [];
   const { data, error } = await sb
     .from("content_items")
-    .select("id, kind, channel, status, title, script, review_note, cost_usd, cost_breakdown")
+    .select("id, kind, channel, status, title, script, review_note, attempts, cost_usd, cost_breakdown")
     .in("status", statuses)
     .order("updated_at", { ascending: true })
     .limit(limit);

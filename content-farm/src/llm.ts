@@ -15,6 +15,8 @@ export interface TokenUse {
 export class Budget {
   spent = 0;
   lines: { what: string; usd: number; tokens?: TokenUse }[] = [];
+  /** Things the owner should hear about this item (e.g. the editor pass was skipped). */
+  notes: string[] = [];
   constructor(readonly limit: number) {}
   add(what: string, usd: number, tokens?: TokenUse) {
     this.spent += usd;

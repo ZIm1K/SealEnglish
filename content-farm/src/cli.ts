@@ -57,10 +57,19 @@ async function main() {
         for (const [i, { idea }] of stored.entries()) log(`  ${i + 1}. [${idea.format}] ${idea.title} — ${idea.trend}`);
         log(`Аналіз коштував $${budget.spent.toFixed(3)}`);
 
+        const warnings = [...scan.warnings];
+        // A pack's two videos voice ≈ 2 500 characters; warn while there is still time to top up,
+        // because without the voice the videos won't be produced at all.
+        if (command !== "scan" && s.tts_provider === "eleven") {
+          const { elevenCharactersLeft } = await import("./media/eleven.ts");
+          const left = await elevenCharactersLeft();
+          if (left !== null && left < 5000) warnings.push(`ElevenLabs: лишилось ${left} символів — цього не вистачить на два пакети, поповніть до затвердження відео`);
+        }
+
         // Scripts only — media is produced after the owner approves them in the cabinet (`work`).
         let made = 0;
-        if (command === "custom") made = await writeScripts(s, stored.slice(0, 1), log, scan.warnings);
-        else if (command !== "scan") made = await writePack(s, pickPackIdeas(stored), log, scan.warnings);
+        if (command === "custom") made = await writeScripts(s, stored.slice(0, 1), log, warnings);
+        else if (command !== "scan") made = await writePack(s, pickPackIdeas(stored), log, warnings);
         await finishRun(runId, { status: "done", cost_usd: budget.spent, log: lines.join(LF), signals: scan.signals, web_report: [scan.web_report, scan.story_report].filter(Boolean).join(STORY_SEP) });
         log(`Готово. На затвердження: ${made}`);
       } catch (e) {

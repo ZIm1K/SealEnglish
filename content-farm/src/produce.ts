@@ -57,8 +57,11 @@ export const CHANNEL_LABEL: Record<Channel, string> = {
   instagram: "📸 Instagram",
 };
 
-/** Set after the first failure (e.g. provider down, no credits) so a run doesn't retry per scene. */
+/** Set by a voice failure that waiting won't fix (bad key, no credits) so the run stops asking per line. */
 let ttsDown = false;
+let voiceError = "";
+/** Lines that should have been voiced and weren't — a video never ships silent or half-voiced. */
+let voiceFailures = 0;
 /** Set only by a failure that waiting won't fix (bad key, no credits); overloads are retried per picture. */
 let imagesDown = false;
 let imageError = "";
@@ -99,15 +102,29 @@ async function trySpeak(
   context: { previous?: string; next?: string } = {},
   opts: { speed?: number; display?: string } = {},
 ): Promise<Speech | null> {
-  if (ttsDown || !text.trim()) return null;
+  if (!text.trim()) return null;
+  if (ttsDown) {
+    voiceFailures++;
+    return null;
+  }
   try {
+    // speak() already waits out rate limits and overloads (3 tries with backoff).
     const speech = await speak(s, budget, text, base, speaker, delivery, context, opts);
     if (speech.provider !== s.tts_provider) standInVoices.add(speech.provider);
     return speech;
   } catch (e) {
-    ttsDown = true;
-    log(`  ⚠ озвучка недоступна: ${(e as Error).message.slice(0, 160)}`);
+    voiceFailures++;
+    voiceError = (e as Error).message.replace(/\s+/g, " ").slice(0, 220);
+    log(`  ⚠ репліку не озвучено: ${voiceError.slice(0, 160)}`);
+    if (!isTransient(e)) ttsDown = true;
     return null;
+  }
+}
+
+/** Stops production before any picture or render is paid for when a line has no voice. */
+function requireVoices(failedBefore: number, s: FarmSettings) {
+  if (voiceFailures > failedBefore) {
+    throw new Error(`Не вдалося озвучити репліки (${voiceError || `${s.tts_provider} недоступний`}). Готові репліки збережено в кеші.`);
   }
 }
 
@@ -193,6 +210,7 @@ async function saveScriptItem(
 export async function writePack(s: FarmSettings, ideas: PackIdeas, log: Log, warnings: string[] = []): Promise<number> {
   const packId = randomUUID();
   const made: string[] = [];
+  const notes: string[] = [];
   let total = 0;
 
   const video = async (channel: "tiktok" | "stories", stored: StoredIdea | null) => {
@@ -209,6 +227,7 @@ export async function writePack(s: FarmSettings, ideas: PackIdeas, log: Log, war
     } catch (e) {
       log(`  ✖ ${(e as Error).message}`);
     }
+    notes.push(...budget.notes.map((n) => `${CHANNEL_LABEL[channel]}: ${n}`));
     total += budget.spent;
   };
   await video("tiktok", ideas.story);
@@ -231,13 +250,14 @@ export async function writePack(s: FarmSettings, ideas: PackIdeas, log: Log, war
     } catch (e) {
       log(`  ✖ пости: ${(e as Error).message}`);
     }
+    notes.push(...budget.notes.map((n) => `пости: ${n}`));
     total += budget.spent;
   }
 
   if (made.length) {
     await notifyAdmins({
       title: "Новий контент-пакет",
-      summary: `📦 Пакет на затвердження: ${made.length} матеріалів · $${total.toFixed(2)}\nВідкрити: ${await siteUrl()}/app/content/${warningLines(warnings)}`,
+      summary: `📦 Пакет на затвердження: ${made.length} матеріалів · $${total.toFixed(2)}\nВідкрити: ${await siteUrl()}/app/content/${warningLines([...warnings, ...notes])}`,
       details: made.map((m) => `• ${m}`).join("\n"),
     });
   }
@@ -258,7 +278,7 @@ export async function writeScripts(s: FarmSettings, videoIdeas: StoredIdea[], lo
           ? { kind: "story", data: normalizeStory(await writeStory(s, budget, stored.idea)) }
           : { kind: "edu", data: normalizeScript(await writeScript(s, budget, stored.idea)) };
       const id = await saveScriptItem(s, randomUUID(), channel, stored.idea.title, stored, script.data as unknown as Record<string, unknown>, budget, "video");
-      await notifyScript(id, stored.idea.title, script, budget.spent, false, warnings);
+      await notifyScript(id, stored.idea.title, script, budget.spent, false, [...warnings, ...budget.notes]);
       made++;
     } catch (e) {
       log(`  ✖ ${(e as Error).message}`);
@@ -283,7 +303,7 @@ export async function rewriteRequested(s: FarmSettings, log: Log): Promise<numbe
         cost_usd: round4(Number(item.cost_usd) + budget.spent),
         cost_breakdown: [...(item.cost_breakdown ?? []), ...budget.lines],
       });
-      await notifyScript(item.id, item.title, next, budget.spent, true);
+      await notifyScript(item.id, item.title, next, budget.spent, true, budget.notes);
       done++;
     } catch (e) {
       await updateItem(item.id, { status: "script_rewrite" });
@@ -298,6 +318,7 @@ export async function rewriteRequested(s: FarmSettings, log: Log): Promise<numbe
 async function eduMedia(s: FarmSettings, budget: Budget, script: Script, dir: string, log: Log): Promise<RenderProps> {
   let imagesLeft = s.ai_images_per_video;
   const audio: SceneAudio[] = [];
+  const voiceFailedBefore = voiceFailures;
   for (const [i, scene] of script.scenes.entries()) {
     const a: SceneAudio = { voice_src: null, voice_seconds: null, reveal_src: null, reveal_seconds: null, image_src: null };
     // Sílі hosts the edu rubrics, so he voices them.
@@ -310,14 +331,15 @@ async function eduMedia(s: FarmSettings, budget: Budget, script: Script, dir: st
       const r = await trySpeak(s, budget, scene.reveal_voice, path.join(dir, `s${i}r`), log, "seal");
       if (r) Object.assign(a, { reveal_src: rel(r.file), reveal_seconds: r.seconds });
     }
-    if (scene.background === "image" && scene.image_prompt && imagesLeft > 0) {
-      a.image_src = await tryDraw(s, budget, { prompt: scene.image_prompt, withSeal: false }, path.join(dir, `s${i}.jpg`), log);
-      if (a.image_src) imagesLeft--;
-    }
     audio.push(a);
   }
-  // A half-voiced video is worse than none: if TTS broke mid-way, drop voice entirely.
-  if (ttsDown) for (const a of audio) Object.assign(a, { voice_src: null, voice_seconds: null, reveal_src: null, reveal_seconds: null });
+  requireVoices(voiceFailedBefore, s);
+  for (const [i, scene] of script.scenes.entries()) {
+    if (scene.background === "image" && scene.image_prompt && imagesLeft > 0) {
+      audio[i].image_src = await tryDraw(s, budget, { prompt: scene.image_prompt, withSeal: false }, path.join(dir, `s${i}.jpg`), log);
+      if (audio[i].image_src) imagesLeft--;
+    }
+  }
   // One backdrop for the whole video, so it reads as a scene in the feed rather than a slide deck.
   const backdrop = script.backdrop_prompt
     ? await tryDraw(s, budget, { prompt: `${script.backdrop_prompt}. Keep the lower-left area calm and uncluttered`, withSeal: false }, path.join(dir, "backdrop.jpg"), log)
@@ -334,6 +356,7 @@ async function storyMedia(s: FarmSettings, budget: Budget, story: Story, dir: st
   // Voice: each line gets the same speaker's neighbouring lines as context, so one character
   // keeps one consistent intonation across the dialogue.
   const media: BeatMedia[] = [];
+  const voiceFailedBefore = voiceFailures;
   for (const [i, beat] of story.beats.entries()) {
     const same = story.beats.map((b, j) => ({ b, j })).filter(({ b }) => b.speaker === beat.speaker);
     const at = same.findIndex(({ j }) => j === i);
@@ -345,7 +368,7 @@ async function storyMedia(s: FarmSettings, budget: Budget, story: Story, dir: st
     });
     media.push({ voice_src: v ? rel(v.file) : null, voice_seconds: v?.seconds ?? null, words: v?.words ?? null });
   }
-  if (ttsDown) for (const m of media) Object.assign(m, { voice_src: null, voice_seconds: null, words: null });
+  requireVoices(voiceFailedBefore, s);
 
   // One generated background per location (Sílі is composited on top); then find the talking
   // background character's head so the camera frames them and bubbles stay off their face.
@@ -408,6 +431,8 @@ async function produceVideoItem(s: FarmSettings, item: ItemRow, log: Log) {
     const coverPath = await upload(out.cover, `videos/${id}.jpg`, "image/jpeg");
     await updateItem(item.id, {
       status: "review",
+      attempts: 0,
+      review_note: null,
       video_path: videoPath,
       cover_path: coverPath,
       duration_s: Math.round(out.seconds * 100) / 100,
@@ -460,6 +485,8 @@ async function producePostItem(s: FarmSettings, item: ItemRow, log: Log) {
     const imagePath = imageFile ? await upload(imageFile, `posts/${id}.jpg`, "image/jpeg") : null;
     await updateItem(item.id, {
       status: "review",
+      attempts: 0,
+      review_note: null,
       image_path: imagePath,
       cost_usd: round4(budget.spent),
       cost_breakdown: [...(item.cost_breakdown ?? []), ...budget.lines],
@@ -490,8 +517,16 @@ export async function produceApproved(s: FarmSettings, log: Log): Promise<number
       made++;
     } catch (e) {
       const reason = (e as Error).message.slice(0, 500);
+      const attempt = (item.attempts ?? 0) + 1;
+      // The in-run retries cover a minute or two; an outage that outlasts them is waited out
+      // across runs: the item goes back to the queue, and the asset cache keeps what is done.
+      if (isTransient(e) && attempt < s.production_attempts) {
+        log(`  ↻ ${item.title}: спроба ${attempt} з ${s.production_attempts} не вдалася — повторю на наступному запуску (${reason.slice(0, 160)})`);
+        await updateItem(item.id, { status: "approved", attempts: attempt, review_note: `Спроба ${attempt} з ${s.production_attempts} не вдалася, повторю автоматично: ${reason}` });
+        continue;
+      }
       log(`  ✖ ${item.title}: ${reason}`);
-      await updateItem(item.id, { status: "failed", review_note: `Помилка виробництва: ${reason}` });
+      await updateItem(item.id, { status: "failed", attempts: attempt, review_note: `Помилка виробництва: ${reason}` });
       // An approved item that silently never arrives looks like a hung farm — say what happened.
       await notifyAdmins({
         title: item.title,

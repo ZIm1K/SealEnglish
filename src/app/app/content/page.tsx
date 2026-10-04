@@ -31,6 +31,7 @@ interface Item {
   duration_s: number | null;
   cost_usd: number;
   review_note: string | null;
+  attempts: number;
   created_at: string;
   updated_at: string;
 }
@@ -210,7 +211,8 @@ function Editor({ id }: { id: string }) {
   const noMedia = isChannelPost(draft) && draft.channel === "threads";
   const approve = () =>
     update.mutate(
-      { script: draft, status: noMedia ? "review" : "approved", review_note: null },
+      // attempts: the farm counts failed production runs per approval, so a new approval starts over.
+      { script: draft, status: noMedia ? "review" : "approved", review_note: null, attempts: 0 },
       { onSuccess: () => toast.success("Затверджено", { description: "Ферма згенерує матеріал протягом ~30 хвилин і надішле в Telegram." }) },
     );
   const askRewrite = () =>

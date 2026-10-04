@@ -5,6 +5,7 @@ import { humanize } from "./humanize.ts";
 import { structured, type Budget } from "./llm.ts";
 import {
   InstagramPostSchema,
+  MAX_LOCATIONS,
   PostsBundleSchema,
   ScriptSchema,
   StorySchema,
@@ -117,7 +118,7 @@ ${HUMAN_VOICE}
   Він діє і говорить сам (seal), а не лише коментує збоку. Якщо в історії є людина-протагоніст — її роль грає Сілі.
 - Другорядні персонажі (продавець, вчитель, турист) — частина ФОНУ локації: опиши їх у locations[].prompt разом із місцем,
   де вони стоять (left/center/right → npc_side). Вони говорять своїм голосом, камера тоді наїжджає на них (shot=npc).
-- Діалог-сценка: 1–2 локації, камера чергує npc ↔ seal, wide — для оповідача. Історія-факт: 4–6 локацій-«слайдів»,
+- Діалог-сценка: 1–2 локації, камера чергує npc ↔ seal, wide — для оповідача. Історія-факт: 3–${MAX_LOCATIONS} локації-«слайди» (не більше ${MAX_LOCATIONS}),
   Сілі з'являється в частині з них як свідок/учасник.
 - seal_side — бік переднього плану, де стоїть Сілі; герой фону — з протилежного боку. Тримай seal_side стабільним у межах локації.
 - seal_pose — емоція кадру: stand-surprised (шок), stand-sad, stand-wink (хитро), stand-joy/wave-happy (радість), read-* (думає/вчиться).
@@ -181,7 +182,7 @@ export async function writeStory(s: FarmSettings, budget: Budget, idea: Idea): P
 export function normalizeStory(story: Story): Story {
   const mood = ["suspense", "chill", "upbeat", "funny"].find((m) => story.music_mood.toLowerCase().includes(m)) ?? "suspense";
   let englishShown = 0;
-  const locations = story.locations.length ? story.locations.slice(0, 6) : [{ prompt: "cozy city street, stylized 3D", npc_side: "none" as const }];
+  const locations = story.locations.length ? story.locations.slice(0, MAX_LOCATIONS) : [{ prompt: "cozy city street, stylized 3D", npc_side: "none" as const }];
   const beats = story.beats.slice(0, 11).map((b) => ({
     ...b,
     // The English pill belongs to narrator lines; character lines already show English in their bubble.

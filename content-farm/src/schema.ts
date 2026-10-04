@@ -114,6 +114,9 @@ export type Side = (typeof SIDES)[number];
 /** wide — whole scene; npc — push in on the background character; seal — on Sílі; punch — fast shock zoom. */
 export const SHOTS = ["wide", "npc", "seal", "punch"] as const;
 
+/** Each location is one generated background (plus a head search); the owner capped stories at four. */
+export const MAX_LOCATIONS = 4;
+
 export const LocationSchema = z.object({
   prompt: z
     .string()
@@ -157,7 +160,7 @@ export const StorySchema = z.object({
   visual_style: z
     .string()
     .describe("Англ. єдиний стиль фонів: стилізована 3D-анімація під Сілі (напр. 'stylized 3D animated film background, Pixar-like, warm light')"),
-  locations: z.array(LocationSchema).describe("1–6 локацій: діалог-сценка — 1–2; історія-факт — 4–6 різних сцен"),
+  locations: z.array(LocationSchema).describe(`1–${MAX_LOCATIONS} локації: діалог-сценка — 1–2; історія-факт — 3–${MAX_LOCATIONS} різні сцени`),
   beats: z.array(BeatSchema).describe("7–9 кадрів, 30–45 секунд загалом"),
   ending_question: z.string().describe("Питання до коментарів, що звучить останнім кадром (входить в останню narration)"),
   cover_title: z.string().describe("Текст обкладинки до 40 символів — найсильніший хук"),
