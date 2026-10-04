@@ -139,6 +139,10 @@ ${HUMAN_VOICE}
 - Англійська репліка героя має бути зрозуміла з контексту, а в translation — точний короткий переклад.
 - Жодних «внутрішніх» жартів, гри слів, яку треба розшифровувати, абревіатур без пояснення, нових тем наприкінці.
 - Перевір себе: перекажи сюжет в одному реченні. Якщо не виходить — сюжет переписати.
+- Перевір зв'язність: після кожної репліки глядач знає, хто говорить, про кого мова і чому це сталося після попереднього.
+  Нове ім'я, слово чи факт пояснюється в тій самій репліці. Займенник («він», «це») — лише коли ясно, про кого він.
+  Перехід до розв'язки має місток («насправді…», «а тепер правда…»), а не обрив.
+- Якщо в ідеї дві лінії (напр. легенда і її спростування) — у ролик іде одна, друга згадується одним реченням або ніяк.
 - Менше реплік — більше сенсу: 6–8 кадрів, 22–32 секунди. Кожна репліка або рухає сюжет, або дає емоцію/сміх. Жодних
   «прохідних» фраз і самоповторів. Краще 6 сильних реплік, ніж 9 середніх.
 - Жарт має бути смішним людині, яка НЕ знає англійської: гумор — у ситуації, реакції, емоції Сілі. Гра англійських слів
@@ -157,7 +161,7 @@ ${HUMAN_VOICE}
 - delivery — як зіграти репліку: емоція, темп, гучність («пошепки, інтригуюче», «обурено», «сміючись»).
 
 ## Технічні правила
-- 6–8 кадрів (beats), разом 22–32 секунди; уся озвучка — до 300 символів. Кожен кадр = одна репліка до 10 слів.
+- 6–8 кадрів (beats), разом 22–32 секунди; уся озвучка — 280–360 символів. Кожен кадр = одна репліка до 12 слів.
 - Перша репліка — хук за розділом «Утримання глядача»: до 8 слів, відкриває питання і не відповідає на нього.
   hook_overlay — 3–5 слів (до 28 символів) великим текстом у першому кадрі: та сама обіцянка іншими словами, теж без відповіді.
 - У першому кадрі герой уже в сцені: Сілі (seal_visible=true) з виразною позою (stand-surprised, stand-wink, stand-sad)
@@ -328,14 +332,18 @@ export async function rewriteWithNote(s: FarmSettings, budget: Budget, script: A
     return JSON.stringify(parsed.success ? parsed.data : script.data, null, 2);
   };
   const promptFor = (current: string) => `Коментар власника:\n«${note}»\n\nПоточна версія (JSON):\n${current}`;
+  // A rewrite is a new text: it goes through the same editor as a first draft. Without it the
+  // rewritten lines came out choppy — nobody read them as a viewer before the owner did.
   if (script.kind === "story") {
     const schema = storySchema(s);
-    const data = await structured({ s, budget, what: "rewrite_story", schema, effort: "medium", system, prompt: promptFor(shown(schema)) });
+    const draft = await structured({ s, budget, what: "rewrite_story", schema, effort: "medium", system, prompt: promptFor(shown(schema)) });
+    const data = await humanize(s, budget, schema, draft, "story");
     return { kind: "story", data: normalizeStory({ ...NO_CROSS_POSTS, ...data }) };
   }
   if (script.kind === "edu") {
     const schema = scriptSchema(s);
-    const data = await structured({ s, budget, what: "rewrite_script", schema, effort: "medium", system, prompt: promptFor(shown(schema)) });
+    const draft = await structured({ s, budget, what: "rewrite_script", schema, effort: "medium", system, prompt: promptFor(shown(schema)) });
+    const data = await humanize(s, budget, schema, draft, "script");
     return { kind: "edu", data: normalizeScript({ ...NO_CROSS_POSTS, ...data }) };
   }
   const prompt = promptFor(JSON.stringify(script.data, null, 2));

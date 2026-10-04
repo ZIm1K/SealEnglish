@@ -136,7 +136,7 @@ export const BeatSchema = z.object({
   speaker_name: z.string().describe("Підпис героя на екрані («Бариста», «Сілі»), для narrator — ''"),
   narration: z
     .string()
-    .describe("Репліка, яку озвучать: одне коротке речення до 10 слів (перша — до 8). Для en_* — англійською, для решти — українською"),
+    .describe("Репліка, яку озвучать: одне повне речення до 12 слів (перша — до 8). Для en_* — англійською, для решти — українською"),
   delivery: z.string().describe("Як зіграти репліку (емоція/темп), напр. «розгублено», «пошепки», «сміючись»; або ''"),
   spoken: z
     .string()
@@ -161,7 +161,7 @@ export const StorySchema = z.object({
     .string()
     .describe("Англ. єдиний стиль фонів: стилізована 3D-анімація під Сілі (напр. 'stylized 3D animated film background, Pixar-like, warm light')"),
   locations: z.array(LocationSchema).describe(`1–${MAX_LOCATIONS} локації: діалог-сценка — 1–2; історія-факт — 3–${MAX_LOCATIONS} різні сцени`),
-  beats: z.array(BeatSchema).describe("6–8 кадрів, 22–32 секунди загалом (уся озвучка до 300 символів)"),
+  beats: z.array(BeatSchema).describe("6–8 кадрів, 22–32 секунди загалом (уся озвучка 280–360 символів)"),
   ending_question: z.string().describe("Питання до коментарів, що звучить останнім кадром (входить в останню narration)"),
   cover_title: z.string().describe("Текст обкладинки до 40 символів — найсильніший хук"),
   music_mood: z.string().describe("Настрій музики: suspense | chill | upbeat | funny"),
