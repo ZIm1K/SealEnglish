@@ -99,7 +99,7 @@ export interface IdeateInput {
 }
 
 export async function ideate(opts: IdeateInput & { s: FarmSettings; budget: Budget }): Promise<Idea[]> {
-  const { ideas } = await structured({ s: opts.s, budget: opts.budget, ...ideateCall(opts) });
+  const { ideas } = await structured({ s: opts.s, budget: opts.budget, ...ideateCall(opts, opts.s.ideate_effort) });
   return rankIdeas(ideas);
 }
 
@@ -107,14 +107,14 @@ export async function ideate(opts: IdeateInput & { s: FarmSettings; budget: Budg
 export const rankIdeas = (ideas: Idea[]) =>
   ideas.filter((i) => i.title.trim().length >= 10 && i.trend.trim().length >= 5 && i.bridge.trim().length >= 5).sort((a, b) => ideaScore(b) - ideaScore(a));
 
-export function ideateCall(opts: IdeateInput): StructuredCall<typeof IdeasSchema> {
+export function ideateCall(opts: IdeateInput, effort: FarmSettings["ideate_effort"] = "high"): StructuredCall<typeof IdeasSchema> {
   const signals = opts.scan.signals
     .map((t) => `- [${t.source}] ${t.title}${t.traffic ? ` (${t.traffic})` : ""}${t.detail ? ` — ${t.detail}` : ""}`)
     .join("\n");
   return {
     what: "ideate",
     schema: IdeasSchema,
-    effort: "high",
+    effort,
     system: `Ти — креативний продюсер коротких відео для бренду нижче. Твоє завдання — знаходити виходи на ЦА через тренди, не порушуючи концепцію бренду.\n\n${BRAND_BIBLE}`,
     prompt: `Сьогодні ${today()}.
 

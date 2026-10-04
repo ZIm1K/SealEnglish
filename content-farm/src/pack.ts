@@ -37,7 +37,7 @@ export interface PackState {
 
 /** The calls of the current stage, rebuilt from the saved inputs (so their schemas can parse the answers). */
 function stageCalls(s: FarmSettings, st: PackState): Record<string, StructuredCall> {
-  if (st.stage === "ideas") return { ideate: ideateCall(st.input) };
+  if (st.stage === "ideas") return { ideate: ideateCall(st.input, s.ideate_effort) };
   const calls: Record<string, StructuredCall> = {};
   if (st.stage === "drafts") {
     if (st.picks?.story) calls.story = storyCall(s, st.picks.story.idea);
