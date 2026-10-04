@@ -7,6 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { CTA_VOICE, HANDLES } from "./brand.ts";
+import { driveAvailable, driveViewUrl, uploadToDrive, videoFolder } from "./drive.ts";
 import { ROOT, type FarmSettings } from "./env.ts";
 import { buildRenderProps, buildStoryProps, type BeatMedia, type SceneAudio } from "./layout.ts";
 import { Budget } from "./llm.ts";
@@ -427,13 +428,23 @@ async function produceVideoItem(s: FarmSettings, item: ItemRow, log: Log) {
     // The bundle snapshots the public dir, so it is built after this video's assets exist.
     log("  рендер…");
     const out = await renderVideo(await makeBundle(), props, outDir(), id);
-    const videoPath = await upload(out.video, `videos/${id}.mp4`, "video/mp4");
+    // The video goes to Google Drive (a re-render replaces the same file, so its link stays);
+    // the Supabase bucket is the fallback, so a Drive hiccup never loses a finished render.
+    let driveId: string | null = null;
+    if (await driveAvailable()) {
+      driveId = await uploadToDrive(s, out.video, `${id}.mp4`, "video/mp4", videoFolder(), item.drive_file_id).catch((e) => {
+        log(`  ⚠ Google Drive не прийняв відео (${(e as Error).message.slice(0, 120)}) — кладу в Supabase`);
+        return null;
+      });
+    }
+    const videoPath = driveId ? null : await upload(out.video, `videos/${id}.mp4`, "video/mp4");
     const coverPath = await upload(out.cover, `videos/${id}.jpg`, "image/jpeg");
     await updateItem(item.id, {
       status: "review",
       attempts: 0,
       review_note: null,
       video_path: videoPath,
+      drive_file_id: driveId,
       cover_path: coverPath,
       duration_s: Math.round(out.seconds * 100) / 100,
       cost_usd: round4(before + budget.spent),
@@ -442,7 +453,7 @@ async function produceVideoItem(s: FarmSettings, item: ItemRow, log: Log) {
     const note = {
       title: item.title,
       summary: `🎬 Відео готове · ${idea?.format ?? script.kind} · ${out.seconds.toFixed(0)} с · цей запуск $${budget.spent.toFixed(3)}, разом $${(before + budget.spent).toFixed(3)}${voiceNote}`,
-      details: captionsDigest(script.data),
+      details: [captionsDigest(script.data), driveId ? `📁 Google Drive:\n${driveViewUrl(driveId)}` : ""].filter(Boolean).join("\n\n— — —\n\n"),
     };
     // The video is already saved and marked ready; a Telegram hiccup (bots can't upload files over
     // 50 MB) must not turn it into a failed item — fall back to a link to the cabinet.

@@ -79,6 +79,68 @@ async function main() {
       return;
     }
 
+    case "drive-auth": {
+      // One-time consent in the browser; stores the refresh token in content-farm/.env.
+      const { authorizeDrive } = await import("./drive.ts");
+      await authorizeDrive(s, log);
+      return;
+    }
+
+    case "drive-migrate": {
+      // Copies videos that still live in the Supabase bucket to Google Drive and points their items
+      // at the copies. Nothing is deleted here — see `storage-cleanup`.
+      const { driveAvailable, driveViewUrl, uploadToDrive } = await import("./drive.ts");
+      const sb = supabase();
+      if (!sb || !(await driveAvailable())) throw new Error("Потрібні SUPABASE_SERVICE_ROLE_KEY і підключений Google Drive (drive-auth)");
+      const fs = await import("node:fs");
+      const os = await import("node:os");
+      const { data: items, error } = await sb.from("content_items").select("id, title, video_path, created_at").not("video_path", "is", null).is("drive_file_id", null).order("created_at");
+      if (error) throw error;
+      for (const item of items ?? []) {
+        const { data: blob, error: dl } = await sb.storage.from("content").download(item.video_path as string);
+        if (dl || !blob) {
+          log(`  ✖ ${item.title}: не вдалося завантажити із Supabase (${dl?.message ?? "порожньо"})`);
+          continue;
+        }
+        const tmp = path.join(os.tmpdir(), path.basename(item.video_path as string));
+        fs.writeFileSync(tmp, Buffer.from(await blob.arrayBuffer()));
+        try {
+          const id = await uploadToDrive(s, tmp, path.basename(tmp), "video/mp4", ["Відео", (item.created_at as string).slice(0, 7)]);
+          await sb.from("content_items").update({ drive_file_id: id }).eq("id", item.id);
+          log(`  ✔ ${item.title} → ${driveViewUrl(id)}`);
+        } finally {
+          fs.rmSync(tmp, { force: true });
+        }
+      }
+      log(`Скопійовано: ${(items ?? []).length}. Файли в Supabase лишились на місці — прибрати: npm run farm -- storage-cleanup`);
+      return;
+    }
+
+    case "storage-cleanup": {
+      // Removes videos from the Supabase bucket that are safe to lose: superseded renders nothing
+      // points at, and videos whose items already have a copy on Google Drive. Lists by default;
+      // deletes only with --yes (irreversible, so it is the owner's command to run).
+      const sb = supabase();
+      if (!sb) throw new Error("Потрібен SUPABASE_SERVICE_ROLE_KEY");
+      const { data: files, error } = await sb.storage.from("content").list("videos", { limit: 1000 });
+      if (error) throw error;
+      const { data: items } = await sb.from("content_items").select("id, video_path, drive_file_id").not("video_path", "is", null);
+      const kept = new Set((items ?? []).filter((i) => !i.drive_file_id).map((i) => i.video_path as string));
+      const moved = (items ?? []).filter((i) => i.drive_file_id);
+      const doomed = (files ?? []).filter((f) => f.name.endsWith(".mp4") && !kept.has(`videos/${f.name}`));
+      const mb = (list: typeof doomed) => (list.reduce((a, f) => a + Number((f.metadata as { size?: number } | null)?.size ?? 0), 0) / 1e6).toFixed(0);
+      for (const f of doomed) log(`  ${f.name}  ${(Number((f.metadata as { size?: number } | null)?.size ?? 0) / 1e6).toFixed(0)} МБ`);
+      log(`До видалення: ${doomed.length} відео, ${mb(doomed)} МБ (обкладинки й кеш не чіпаю). Лишаються в Supabase: ${kept.size}.`);
+      if (flags.yes !== "true") return log("Це перелік. Видалити безповоротно: npm run farm -- storage-cleanup --yes");
+      if (doomed.length) {
+        const { error: rm } = await sb.storage.from("content").remove(doomed.map((f) => `videos/${f.name}`));
+        if (rm) throw rm;
+      }
+      for (const i of moved) await sb.from("content_items").update({ video_path: null }).eq("id", i.id);
+      log(`Видалено: ${doomed.length} відео.`);
+      return;
+    }
+
     case "voice-design": {
       // 1) `voice-design` → previews into out/voice-previews; 2) `voice-design --pick N` → saves voice N for Sílі.
       const eleven = await import("./media/eleven.ts");
@@ -143,6 +205,9 @@ async function main() {
   npm run farm -- custom --topic "…" [--format story|edu] [--trends]
       відео на задану тему: story — вірусна історія (за замовчуванням), edu — навчальний ролик
   npm run farm -- voices                     список голосів ElevenLabs (для вибору голосу кожної ролі)
+  npm run farm -- drive-auth                 одноразово підключити Google Drive (згода в браузері)
+  npm run farm -- drive-migrate              скопіювати відео із Supabase на Google Drive
+  npm run farm -- storage-cleanup [--yes]    перелік (з --yes — видалення) відео в Supabase, які вже не потрібні
   npm run farm -- demo                       тестовий рендер без API-ключів
 
   Загальні прапорці: --model claude-sonnet-5-5 (дешевша модель)`);

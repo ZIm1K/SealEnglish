@@ -26,6 +26,8 @@ interface Item {
   title: string;
   script: ScriptJson;
   video_path: string | null;
+  /** Videos live on the owner's Google Drive; video_path is set only for older items and as a fallback. */
+  drive_file_id: string | null;
   cover_path: string | null;
   image_path: string | null;
   duration_s: number | null;
@@ -204,6 +206,7 @@ function Editor({ id }: { id: string }) {
   const set = (next: ScriptJson) => setEdit(next);
   const editable = ["script", "review", "failed", "rejected"].includes(item.status);
   const st = STATUS[item.status] ?? { label: item.status, tone: "gray" as const };
+  const drive = item.drive_file_id;
   const video = publicUrl(item.video_path);
   const image = publicUrl(item.image_path);
 
@@ -257,9 +260,12 @@ function Editor({ id }: { id: string }) {
       )}
       {item.status === "failed" && item.review_note && <Card className="mb-5 p-4 text-sm text-red-600">{item.review_note}</Card>}
 
-      {(video || image) && (
+      {(drive || video || image) && (
         <Card className="mb-5 grid gap-5 p-5 sm:grid-cols-[minmax(0,320px)_1fr]">
-          {video ? (
+          {drive ? (
+            // The file is private: Drive's player works where the owner is signed in to Google.
+            <iframe src={`https://drive.google.com/file/d/${drive}/preview`} title="Відео" allow="autoplay; fullscreen" className="aspect-[9/16] w-full rounded-2xl bg-black" />
+          ) : video ? (
             <video src={video} controls playsInline className="aspect-[9/16] w-full rounded-2xl bg-black" />
           ) : (
             <img src={image!} alt="" className="w-full rounded-2xl" />
@@ -269,10 +275,22 @@ function Editor({ id }: { id: string }) {
             <p className="mt-1">
               Завантажте відео й опублікуйте з підписами нижче. Хочете змінити — відредагуйте сценарій і натисніть «Затвердити» знову: відео перегенерується.
             </p>
-            {video && (
-              <Button asChild variant="outline" size="sm" className="mt-3">
-                <a href={video} download target="_blank" rel="noreferrer">Завантажити MP4</a>
-              </Button>
+            {drive ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button asChild variant="outline" size="sm">
+                  <a href={`https://drive.google.com/file/d/${drive}/view`} target="_blank" rel="noreferrer">Відкрити на Google Drive</a>
+                </Button>
+                <Button asChild variant="outline" size="sm">
+                  <a href={`https://drive.google.com/uc?export=download&id=${drive}`} target="_blank" rel="noreferrer">Завантажити MP4</a>
+                </Button>
+                <p className="basis-full text-xs">Відео приватне: програвач працює там, де ви ввійшли у свій Google-акаунт.</p>
+              </div>
+            ) : (
+              video && (
+                <Button asChild variant="outline" size="sm" className="mt-3">
+                  <a href={video} download target="_blank" rel="noreferrer">Завантажити MP4</a>
+                </Button>
+              )
             )}
           </div>
         </Card>

@@ -42,6 +42,10 @@ const SECRETS = {
   eleven: ["ELEVENLABS_API_KEY", "elevenlabs_api_key"],
   /** Groq key (same one the lesson transcripts use) — Whisper word timestamps for captions. */
   stt: ["STT_API_KEY", "stt_api_key"],
+  /** OAuth client (Desktop app) and the owner's refresh token for Google Drive — see src/drive.ts. */
+  driveClientId: ["GOOGLE_DRIVE_CLIENT_ID", "google_drive_client_id"],
+  driveClientSecret: ["GOOGLE_DRIVE_CLIENT_SECRET", "google_drive_client_secret"],
+  driveRefreshToken: ["GOOGLE_DRIVE_REFRESH_TOKEN", "google_drive_refresh_token"],
 } as const;
 
 const cache = new Map<string, string | null>();
@@ -98,6 +102,8 @@ export interface FarmSettings {
   tts_fallback: boolean;
   /** How many production runs an item gets when a provider is temporarily down, before it is marked failed. */
   production_attempts: number;
+  /** Id of the farm's root folder on Google Drive; filled in on first use. */
+  drive_folder_id: string;
   eleven_model: string;
   eleven_speed: number;
   /** ElevenLabs voice_id per role; override any of them in app_settings.content_farm.eleven_voices. */
@@ -152,6 +158,7 @@ export const DEFAULT_SETTINGS: FarmSettings = {
   tts_provider: "eleven",
   tts_fallback: false,
   production_attempts: 3,
+  drive_folder_id: "",
   eleven_model: "eleven_v4",
   eleven_speed: 0.98,
   // Premade ElevenLabs voices (multilingual). Replace with Voice Library picks via `npm run farm -- voices`.

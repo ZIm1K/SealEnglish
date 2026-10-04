@@ -121,6 +121,8 @@ export interface ItemRow {
   review_note: string | null;
   /** Production runs that failed on a passing provider outage since the last approval. */
   attempts: number | null;
+  /** The video on Google Drive (new items); older ones have video_path in the Supabase bucket. */
+  drive_file_id: string | null;
   cost_usd: number;
   cost_breakdown: { what: string; usd: number }[] | null;
 }
@@ -130,7 +132,7 @@ export async function itemsWithStatus(statuses: string[], limit = 10): Promise<I
   if (!sb) return [];
   const { data, error } = await sb
     .from("content_items")
-    .select("id, kind, channel, status, title, script, review_note, attempts, cost_usd, cost_breakdown")
+    .select("id, kind, channel, status, title, script, review_note, attempts, drive_file_id, cost_usd, cost_breakdown")
     .in("status", statuses)
     .order("updated_at", { ascending: true })
     .limit(limit);
