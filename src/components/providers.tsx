@@ -4,6 +4,7 @@ import { MotionConfig } from "motion/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 import { Toaster } from "sonner";
+import { RecorderProvider } from "@/components/app/recorder";
 import { SessionProvider } from "@/components/app/session";
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -18,7 +19,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <QueryClientProvider client={client}>
       <MotionConfig reducedMotion="user">
-        <SessionProvider>{children}</SessionProvider>
+        <SessionProvider>
+          <RecorderProvider>{children}</RecorderProvider>
+        </SessionProvider>
         <Toaster
           position="top-center"
           richColors

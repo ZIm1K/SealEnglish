@@ -18,7 +18,6 @@ import { Logo } from "@/components/site/Logo";
 import { Avatar, Badge, Spinner } from "@/components/ui/misc";
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/components/ui/overlay";
 import { Seal, type SealEmotion } from "@/components/mascot/Seal";
-import { RecorderProvider } from "./recorder";
 import { supabase } from "@/lib/supabase";
 import { useAiFeatures } from "@/lib/queries";
 import { ROLE_LABEL, type Notification, type Role } from "@/lib/types";
@@ -234,11 +233,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </Menu>
         </header>
         <main id="main" tabIndex={-1} className="app-main min-w-0 flex-1 overflow-x-clip px-4 py-6 outline-none sm:px-6 lg:px-8 lg:py-8">
-          <RecorderProvider>
-            <motion.div key={pathname} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
-              {children}
-            </motion.div>
-          </RecorderProvider>
+          <motion.div key={pathname} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
+            {children}
+          </motion.div>
         </main>
       </div>
     </div>

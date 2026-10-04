@@ -1,12 +1,14 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Loader2, Mic, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/overlay";
-import { callFunction, supabase } from "@/lib/supabase";
+import { useSession } from "@/components/app/session";
+import { outbox, queue } from "@/lib/audio-outbox";
+import { ApiError, callFunction, supabase } from "@/lib/supabase";
 import type { Lesson } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -14,8 +16,9 @@ import { cn } from "@/lib/utils";
  * Lesson recording for automatic transcripts. The teacher's browser captures two tracks —
  * t = own microphone, s = the Meet tab (everyone else) — so the transcript knows who spoke.
  * Audio goes to storage in 10-minute chunks (a crash loses at most one chunk); ai-transcribe turns it
- * into text, deletes the audio and drafts the lesson summary. Lives in AppShell, so moving around
- * the cabinet doesn't stop the recording.
+ * into text, deletes the audio and drafts the lesson summary. Chunks that can't be uploaded (signed out,
+ * offline) wait in the browser and go out later. Lives above the cabinet shell, so neither moving
+ * around the cabinet nor losing the session stops the recording.
  */
 
 const SEGMENT_MS = 10 * 60_000;
@@ -33,6 +36,8 @@ interface RecorderApi {
   active: Active | null;
   startedAt: number;
   levels: { t: number; s: number };
+  signedOut: boolean;
+  waiting: number;
   requestStart: (lesson: Lesson) => void;
   stop: () => void;
 }
@@ -86,24 +91,40 @@ class TrackRecorder {
   }
 }
 
+const subscribeNever = () => () => {};
+
+type Sent = "ok" | "signed-out" | "error";
+
+async function send(lessonId: string, name: string, blob: Blob): Promise<Sent> {
+  const { data } = await supabase.auth.getSession();
+  if (!data.session) return "signed-out";
+  const { error } = await supabase.storage.from(BUCKET).upload(`${lessonId}/${name}`, blob, { contentType: "audio/webm", upsert: true });
+  return error ? "error" : "ok";
+}
+
+/** Mounted above the cabinet shell: losing the session sends the teacher to /login, and the recording must outlive that. */
 export function RecorderProvider({ children }: { children: React.ReactNode }) {
   const qc = useQueryClient();
-  // Mounted only after sign-in (client-side), so reading navigator here is hydration-safe.
-  const [supported] = useState(isSupported);
+  const { session: auth } = useSession();
+  const userId = auth?.user.id;
+  // false during prerender and hydration; nothing reads it before the cabinet mounts on the client
+  const supported = useSyncExternalStore(subscribeNever, isSupported, () => false);
   const [phase, setPhase] = useState<Phase>("idle");
   const [active, setActive] = useState<Active | null>(null);
   const [startedAt, setStartedAt] = useState(0);
   const [levels, setLevels] = useState({ t: 0, s: 0 });
   const [asking, setAsking] = useState<Lesson | null>(null);
+  const [waiting, setWaiting] = useState(0); // segments kept in this browser until they can be uploaded
   const session = useRef<{
     lessonId: string;
+    userId: string;
     recorders: TrackRecorder[];
     streams: MediaStream[];
     timers: number[];
     audio: AudioContext;
-    failed: { name: string; blob: Blob }[];
     stopping: boolean;
   } | null>(null);
+  const chain = useRef<Promise<void>>(Promise.resolve());
 
   // Leaving the page would lose the current segment.
   useEffect(() => {
@@ -113,15 +134,95 @@ export function RecorderProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("beforeunload", warn);
   }, [phase]);
 
-  const upload = useCallback(async (lessonId: string, name: string, blob: Blob) => {
+  const upload = useCallback(async (userId: string, lessonId: string, name: string, blob: Blob) => {
     if (blob.size < 2000) return; // only a header — nothing was recorded
     for (let attempt = 0; attempt < 3; attempt++) {
-      const { error } = await supabase.storage.from(BUCKET).upload(`${lessonId}/${name}`, blob, { contentType: "audio/webm", upsert: true });
-      if (!error) return;
+      const sent = await send(lessonId, name, blob);
+      if (sent === "ok") return;
+      if (sent === "signed-out") break; // retrying won't help until the teacher signs in again
       await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
     }
-    session.current?.failed.push({ name, blob });
+    await outbox.put({ lessonId, userId, name, blob });
+    queue.add(lessonId, userId);
+    setWaiting((n) => n + 1);
   }, []);
+
+  /** Uploads what's waiting in the outbox; returns the lessons that still have segments left there. */
+  const flush = useCallback(async (userId: string, recordingId?: string) => {
+    const done = new Map<string, boolean>(); // lessons transcribed meanwhile without these segments
+    const left = new Set<string>();
+    for (const seg of (await outbox.all()).filter((s) => s.userId === userId)) {
+      if (seg.lessonId !== recordingId && !done.has(seg.lessonId)) {
+        const { data } = await supabase.from("lesson_transcripts").select("status").eq("lesson_id", seg.lessonId).maybeSingle();
+        done.set(seg.lessonId, data?.status === "ready");
+      }
+      if (done.get(seg.lessonId)) {
+        // uploading now would make a retry replace the whole transcript with this fragment
+        await outbox.remove(seg.key);
+        queue.remove(seg.lessonId);
+      } else if ((await send(seg.lessonId, seg.name, seg.blob)) === "ok") await outbox.remove(seg.key);
+      else left.add(seg.lessonId);
+    }
+    setWaiting((await outbox.all()).length);
+    return left;
+  }, []);
+
+  const transcribe = useCallback(async (lessonId: string) => {
+    setActive((a) => a ?? { lessonId, title: "" });
+    setPhase("processing");
+    try {
+      const r = await callFunction<{ duration_sec: number; auto_summary: boolean }>("ai-transcribe", { action: "transcribe", lesson_id: lessonId });
+      queue.remove(lessonId);
+      toast.success(`Урок розшифровано · ${Math.round(r.duration_sec / 60)} хв`, {
+        description: r.auto_summary ? "ШІ готує підсумок — прийде сповіщення, коли можна перевірити." : "Відкрийте урок, щоб оновити підсумок з урахуванням запису.",
+        duration: 8000,
+      });
+    } catch (e) {
+      const status = e instanceof ApiError ? e.status : -1;
+      if (status === 401) {
+        // the session was ended elsewhere; stays queued and runs after the next sign-in
+        toast.warning("Сесію завершено — увійдіть знову", { description: "Аудіо збережено. Урок розшифрується автоматично після входу.", duration: 12000 });
+      } else if (status === 0) {
+        toast.warning("Немає з'єднання", { description: "Аудіо збережено. Урок розшифрується, щойно з'явиться інтернет.", duration: 12000 });
+      } else {
+        queue.remove(lessonId);
+        toast.error((e as Error).message, { description: "Аудіо збережено — повторіть розшифровку з картки уроку." });
+      }
+    } finally {
+      qc.invalidateQueries({ queryKey: ["lesson-transcript", lessonId] });
+      qc.invalidateQueries({ queryKey: ["lesson-summary", lessonId] });
+      setPhase("idle");
+      setActive(null);
+    }
+  }, [qc]);
+
+  /** Sends everything that's waiting: outbox segments first, then the lessons queued for transcription. */
+  const resume = useCallback(() => {
+    const step = async () => {
+      const { data } = await supabase.auth.getSession();
+      const uid = data.session?.user.id;
+      if (!uid) return;
+      const left = await flush(uid, session.current?.lessonId);
+      for (const lessonId of queue.list(uid)) {
+        if (session.current) break; // a recording is running; the rest goes out when it stops
+        if (left.has(lessonId)) continue;
+        const { data: row } = await supabase.from("lesson_transcripts").select("status").eq("lesson_id", lessonId).maybeSingle();
+        if (row?.status === "ready") queue.remove(lessonId); // already retried from the lesson card
+        else await transcribe(lessonId);
+      }
+    };
+    chain.current = chain.current.then(step, step);
+    return chain.current;
+  }, [flush, transcribe]);
+
+  // After a sign-in (also the first load) and when the internet is back.
+  useEffect(() => {
+    if (!userId) return;
+    void resume();
+    const online = () => void resume();
+    window.addEventListener("online", online);
+    return () => window.removeEventListener("online", online);
+  }, [userId, resume]);
 
   const stop = useCallback(async () => {
     const s = session.current;
@@ -132,30 +233,25 @@ export function RecorderProvider({ children }: { children: React.ReactNode }) {
     await Promise.all(s.recorders.map((r) => r.end()));
     s.streams.forEach((st) => st.getTracks().forEach((t) => t.stop()));
     s.audio.close().catch(() => {});
-    // one more try for segments that failed to upload during the lesson
-    const failed = s.failed.splice(0);
-    for (const f of failed) await upload(s.lessonId, f.name, f.blob);
     session.current = null;
     setLevels({ t: 0, s: 0 });
 
-    setPhase("processing");
-    try {
-      const r = await callFunction<{ duration_sec: number; auto_summary: boolean }>("ai-transcribe", { action: "transcribe", lesson_id: s.lessonId });
-      toast.success(`Урок розшифровано · ${Math.round(r.duration_sec / 60)} хв`, {
-        description: r.auto_summary ? "ШІ готує підсумок — прийде сповіщення, коли можна перевірити." : "Відкрийте урок, щоб оновити підсумок з урахуванням запису.",
-        duration: 8000,
-      });
-    } catch (e) {
-      toast.error((e as Error).message, { description: "Аудіо збережено — повторіть розшифровку з картки уроку." });
-    } finally {
-      qc.invalidateQueries({ queryKey: ["lesson-transcript", s.lessonId] });
-      qc.invalidateQueries({ queryKey: ["lesson-summary", s.lessonId] });
-      setPhase("idle");
-      setActive(null);
+    queue.add(s.lessonId, s.userId);
+    await resume();
+    setPhase("idle");
+    setActive(null);
+    const { data } = await supabase.auth.getSession();
+    if (!data.session) {
+      toast.warning("Запис збережено на цьому комп'ютері", { description: "Сесію завершено. Увійдіть знову в цьому ж браузері — урок довантажиться й розшифрується автоматично.", duration: 15000 });
+    } else if ((await outbox.all()).some((seg) => seg.lessonId === s.lessonId)) {
+      toast.warning("Частину запису не вдалося завантажити", { description: "Вона збережена на цьому комп'ютері. Не закривайте кабінет — спробуємо ще раз, коли з'явиться зв'язок.", duration: 15000 });
     }
-  }, [qc, upload]);
+  }, [resume]);
 
   const start = useCallback(async (lesson: Lesson) => {
+    const { data: signedIn } = await supabase.auth.getSession();
+    const uid = signedIn.session?.user.id;
+    if (!uid) return;
     let display: MediaStream | null = null;
     let mic: MediaStream | null = null;
     try {
@@ -184,8 +280,8 @@ export function RecorderProvider({ children }: { children: React.ReactNode }) {
     const t0 = Date.now();
     const tabAudio = new MediaStream(display.getAudioTracks());
     const recorders = [
-      new TrackRecorder(mic, "t", t0, (n, b) => upload(lesson.id, n, b)),
-      new TrackRecorder(tabAudio, "s", t0, (n, b) => upload(lesson.id, n, b)),
+      new TrackRecorder(mic, "t", t0, (n, b) => upload(uid, lesson.id, n, b)),
+      new TrackRecorder(tabAudio, "s", t0, (n, b) => upload(uid, lesson.id, n, b)),
     ];
 
     // Live levels so the teacher sees both their voice and the students are being captured.
@@ -205,7 +301,7 @@ export function RecorderProvider({ children }: { children: React.ReactNode }) {
     const tLevel = meter(mic);
     const sLevel = meter(tabAudio);
 
-    session.current = { lessonId: lesson.id, recorders, streams: [display, mic], timers: [], audio, failed: [], stopping: false };
+    session.current = { lessonId: lesson.id, userId: uid, recorders, streams: [display, mic], timers: [], audio, stopping: false };
     recorders.forEach((r) => r.begin());
     session.current.timers.push(
       window.setInterval(() => recorders.forEach((r) => r.begin()), SEGMENT_MS),
@@ -223,7 +319,7 @@ export function RecorderProvider({ children }: { children: React.ReactNode }) {
     setPhase("recording");
   }, [qc, stop, upload]);
 
-  const api: RecorderApi = { supported, phase, active, startedAt, levels, requestStart: setAsking, stop: () => void stop() };
+  const api: RecorderApi = { supported, phase, active, startedAt, levels, signedOut: !userId, waiting, requestStart: setAsking, stop: () => void stop() };
 
   return (
     <Ctx.Provider value={api}>
@@ -276,6 +372,11 @@ function RecorderPill({ api }: { api: RecorderApi }) {
               <Level label="Ви" value={api.levels.t} />
               <Level label="Учні" value={api.levels.s} />
             </div>
+            {(api.signedOut || api.waiting > 0) && (
+              <div className="mt-1 max-w-64 text-xs text-amber-200">
+                {api.signedOut ? "Сесію завершено — увійдіть знову. Запис триває і зберігається на цьому комп'ютері." : "Немає зв'язку з сервером — запис зберігається на цьому комп'ютері."}
+              </div>
+            )}
           </div>
           <Button size="sm" variant="glass" onClick={api.stop}><Square className="size-3.5" /> Зупинити</Button>
         </>
