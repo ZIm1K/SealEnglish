@@ -4,14 +4,14 @@ import React from "react";
 import { AbsoluteFill, Img, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 import { BLINKING_POSES } from "../src/brand.ts";
 import type { RenderScene, RenderWord } from "../src/schema.ts";
-import { BrandBackground } from "./parts.tsx";
+import { BrandBackground, Lead } from "./parts.tsx";
 import { body, C, display } from "./theme.ts";
 
 /** Glass card that holds the scene's content, readable over any backdrop. */
 export const Stage: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const f = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const s = spring({ frame: f, fps, config: { damping: 16, stiffness: 170 } });
+  const s = spring({ frame: f + React.useContext(Lead), fps, config: { damping: 16, stiffness: 170 } });
   return (
     <div
       style={{
@@ -141,7 +141,8 @@ export const Host: React.FC<{ scene: RenderScene; first: boolean; prevCta: boole
   const t = f / fps;
   // He walks in once at the start (and when he moves to the centre for the CTA) — not on every scene.
   const moves = first || (scene.kind === "cta") !== prevCta;
-  const enter = moves ? spring({ frame: f, fps, config: { damping: 12, stiffness: 150, mass: 0.7 } }) : 1;
+  const lead = React.useContext(Lead);
+  const enter = moves ? spring({ frame: f + lead, fps, config: { damping: 12, stiffness: 150, mass: 0.7 } }) : 1;
   const voiceEnd = scene.words.at(-1)?.end ?? 0;
   const revealEnd = scene.reveal_start + (scene.reveal_words.at(-1)?.end ?? 0);
   const talking = t < voiceEnd || (scene.kind === "quiz" && t >= scene.reveal_start && t < revealEnd);

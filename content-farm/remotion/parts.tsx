@@ -195,6 +195,12 @@ export const Captions: React.FC<{ words: RenderWord[]; offset?: number; until?: 
 };
 
 /** Text that springs in word by word. */
+/**
+ * Frames the entrance animations are already into when a scene starts. The opening scene sets it,
+ * so the first frame of the video shows the hook instead of an empty backdrop (RETENTION.md).
+ */
+export const Lead = React.createContext(0);
+
 export const PopText: React.FC<{ text: string; size: number; color?: string; delay?: number; font?: string; weight?: number }> = ({
   text,
   size,
@@ -203,7 +209,7 @@ export const PopText: React.FC<{ text: string; size: number; color?: string; del
   font = display,
   weight = 900,
 }) => {
-  const f = useCurrentFrame();
+  const f = useCurrentFrame() + React.useContext(Lead);
   const { fps } = useVideoConfig();
   return (
     <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: `0 ${size * 0.28}px`, textAlign: "center" }}>

@@ -54,12 +54,18 @@ function camMatrix(c: Cam) {
   return { tx, ty, scale: c.scale };
 }
 
-/** Current camera for a beat: eases from the previous beat's framing when the location is the same. */
-function useCam(beat: RenderBeat, prev: RenderBeat | null, loc: RenderLocation | undefined, frames: number) {
+/**
+ * Current camera for a beat: eases from the previous beat's framing when the location is the same.
+ * The picture has to change with every line (RETENTION.md): the video opens on a push-in instead
+ * of a still frame, and a beat that repeats the previous framing cuts closer instead of holding it.
+ */
+function useCam(beat: RenderBeat, prev: RenderBeat | null, loc: RenderLocation | undefined, frames: number, index: number) {
   const f = useCurrentFrame();
   const sameLoc = !!prev && prev.location === beat.location;
-  const to = camFor(beat, loc);
-  const from = sameLoc && prev ? camFor(prev, loc) : beat.shot === "punch" ? { ...to, scale: 1.55 } : to;
+  const repeat = sameLoc && prev.shot === beat.shot && prev.speaker === beat.speaker;
+  const base = camFor(beat, loc);
+  const to = repeat && index % 2 ? { ...base, scale: base.scale * 1.1 } : base;
+  const from = repeat ? to : sameLoc && prev ? camFor(prev, loc) : beat.shot === "punch" ? { ...to, scale: 1.55 } : index === 0 ? { ...to, scale: to.scale + 0.2 } : to;
   const k = interpolate(f, [0, 14], [0, 1], { extrapolateRight: "clamp", easing: Easing.inOut(Easing.cubic) });
   const drift = interpolate(f, [0, frames], [0, 0.035]);
   const lerp = (a: number, b: number) => a + (b - a) * k;
@@ -184,11 +190,12 @@ const SealActor: React.FC<{ beat: RenderBeat; enters: boolean }> = ({ beat, ente
   );
 };
 
-const World: React.FC<{ beat: RenderBeat; prev: RenderBeat | null; loc: RenderLocation | undefined; frames: number }> = ({ beat, prev, loc, frames }) => {
-  const cam = useCam(beat, prev, loc, frames);
+const World: React.FC<{ beat: RenderBeat; prev: RenderBeat | null; loc: RenderLocation | undefined; frames: number; index: number }> = ({ beat, prev, loc, frames, index }) => {
+  const cam = useCam(beat, prev, loc, frames, index);
   const sameLoc = !!prev && prev.location === beat.location;
-  // Sílі walks in on his first appearance in a location (including the very first beat).
-  const enters = beat.seal_visible && (!sameLoc || !prev?.seal_visible || prev.seal_side !== beat.seal_side);
+  // Sílі walks in on his first appearance in a location — except the opening beat, where he is
+  // already standing there: the first frame of the video must not be an empty room.
+  const enters = index > 0 && beat.seal_visible && (!sameLoc || !prev?.seal_visible || prev.seal_side !== beat.seal_side);
   return (
     <AbsoluteFill style={{ overflow: "hidden", background: "#000" }}>
       <div style={{ position: "absolute", width: W, height: H, transformOrigin: "0 0", transform: `translate(${cam.tx}px, ${cam.ty}px) scale(${cam.scale})` }}>
@@ -207,18 +214,20 @@ const World: React.FC<{ beat: RenderBeat; prev: RenderBeat | null; loc: RenderLo
  * Comic speech bubble for character lines: anchored over the speaker (screen position follows the
  * camera), name chip, karaoke highlight, and a Ukrainian translation under English lines.
  */
-const SpeechBubble: React.FC<{ beat: RenderBeat; prev: RenderBeat | null; loc: RenderLocation | undefined; frames: number; minY: number }> = ({
+const SpeechBubble: React.FC<{ beat: RenderBeat; prev: RenderBeat | null; loc: RenderLocation | undefined; frames: number; minY: number; index: number }> = ({
   beat,
   prev,
   loc,
   frames,
   minY,
+  index,
 }) => {
   const f = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const cam = useCam(beat, prev, loc, frames);
+  const cam = useCam(beat, prev, loc, frames, index);
   const t = f / fps;
-  const pop = spring({ frame: f - 2, fps, config: { damping: 13, stiffness: 240 } });
+  // On the opening beat the bubble is there from the first frame.
+  const pop = spring({ frame: index === 0 ? f + 8 : f - 2, fps, config: { damping: 13, stiffness: 240 } });
   const isSeal = beat.speaker === "seal";
   // World anchor: top of Sílі's head, or the background character's head area.
   const npcX = { left: 0.25 * W, center: 0.5 * W, right: 0.75 * W, none: 0.5 * W }[loc?.npc_side ?? "none"];
@@ -287,27 +296,32 @@ const SpeechBubble: React.FC<{ beat: RenderBeat; prev: RenderBeat | null; loc: R
   );
 };
 
+/**
+ * The promise of the video, on screen from the very first frame: most viewers decide within two
+ * seconds and many watch muted, so it can't wait for an entrance animation or for the voice.
+ */
 const HookCard: React.FC<{ text: string }> = ({ text }) => {
   const f = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const s = spring({ frame: f - 3, fps, config: { damping: 12, stiffness: 200 } });
-  const out = interpolate(f, [fps * 2.3, fps * 2.6], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  // Starts mid-spring: already readable on frame 0, the settle still gives the eye some motion.
+  const s = spring({ frame: f + 5, fps, config: { damping: 12, stiffness: 200 } });
+  const out = interpolate(f, [fps * 2.8, fps * 3.1], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
   if (!text || out <= 0) return null;
   return (
-    <div style={{ position: "absolute", top: 300, left: 70, right: 70, display: "flex", justifyContent: "center", opacity: out }}>
+    <div style={{ position: "absolute", top: 300, left: 60, right: 60, display: "flex", justifyContent: "center", opacity: out }}>
       <div
         style={{
-          background: C.white,
+          background: YELLOW,
           color: "#111",
-          fontFamily: body,
-          fontWeight: 800,
-          fontSize: 58,
-          lineHeight: 1.18,
+          fontFamily: display,
+          fontWeight: 900,
+          fontSize: text.length > 28 ? 60 : 76,
+          lineHeight: 1.12,
           textAlign: "center",
-          padding: "22px 34px",
-          borderRadius: 26,
-          boxShadow: "0 20px 60px rgba(0,0,0,0.45)",
-          transform: `scale(${s}) rotate(${(1 - s) * -4}deg)`,
+          padding: "24px 36px",
+          borderRadius: 28,
+          boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
+          transform: `scale(${s}) rotate(${-2 + (1 - s) * -4}deg)`,
         }}
       >
         {text}
@@ -412,12 +426,13 @@ const BeatView: React.FC<{ beat: RenderBeat; prev: RenderBeat | null; loc: Rende
   const frames = beatFrames(beat, fps);
   const cut = p.index > 0 && p.prev?.location !== beat.location;
   // Last beat: once the line is over, clear the text overlays and show the subscribe call alone.
-  const tail = p.last && f > frames - 1.5 * fps;
+  const tail = p.last && f > frames - 1 * fps;
   const flash = cut ? interpolate(f, [0, 4], [0.45, 0], { extrapolateRight: "clamp" }) : 0;
   if (p.cover !== null) {
     return (
       <AbsoluteFill>
-        <World beat={beat} prev={p.prev} loc={p.loc} frames={frames} />
+        {/* index 1: the cover is a still of the settled scene, not of the opening push-in. */}
+        <World beat={beat} prev={null} loc={p.loc} frames={frames} index={1} />
         <AbsoluteFill style={{ background: "linear-gradient(180deg, rgba(0,0,0,0.45) 0%, rgba(0,0,0,0) 22%)" }} />
         <BrandMark handle={p.handle} />
         <CoverTitle text={p.cover} />
@@ -426,7 +441,7 @@ const BeatView: React.FC<{ beat: RenderBeat; prev: RenderBeat | null; loc: Rende
   }
   return (
     <AbsoluteFill>
-      <World beat={beat} prev={p.prev} loc={p.loc} frames={frames} />
+      <World beat={beat} prev={p.prev} loc={p.loc} frames={frames} index={p.index} />
       <AbsoluteFill
         style={{ background: "linear-gradient(180deg, rgba(0,0,0,0.45) 0%, rgba(0,0,0,0) 22%, rgba(0,0,0,0.15) 40%, rgba(0,0,0,0.15) 55%, rgba(0,0,0,0) 70%)" }}
       />
@@ -436,16 +451,18 @@ const BeatView: React.FC<{ beat: RenderBeat; prev: RenderBeat | null; loc: Rende
       {tail ? null : beat.speaker === "narrator" ? (
         <BigCaptions words={beat.words} keyword={beat.keyword} />
       ) : (
-        <SpeechBubble beat={beat} prev={p.prev} loc={p.loc} frames={frames} minY={p.index === 0 ? 560 : 380} />
+        <SpeechBubble beat={beat} prev={p.prev} loc={p.loc} frames={frames} minY={p.index === 0 ? 560 : 380} index={p.index} />
       )}
       {tail && (
-        <Sequence from={frames - Math.round(1.5 * fps)} layout="none">
+        <Sequence from={frames - fps} layout="none">
           <Outro />
         </Sequence>
       )}
       <AbsoluteFill style={{ background: "white", opacity: flash }} />
-      {beat.voice_src && <Audio src={staticFile(beat.voice_src)} />}
+      {beat.voice_src && <Audio src={staticFile(beat.voice_src)} trimBefore={Math.round((beat.voice_lead ?? 0) * fps)} />}
       {cut && <Audio src={staticFile("sfx/whoosh.wav")} volume={0.18} />}
+      {/* A sound on the very first frame: silence there reads as "nothing is happening". */}
+      {p.index === 0 && <Audio src={staticFile("sfx/pop.wav")} volume={0.4} />}
     </AbsoluteFill>
   );
 };
@@ -478,7 +495,7 @@ export const StoryVideo: React.FC<StoryProps> = ({ beats, locations, hook_overla
         <Audio
           loop
           src={staticFile(music_src)}
-          volume={(fr) => interpolate(fr, [0, 10, total - 25, total], [0, 0.12, 0.12, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })}
+          volume={(fr) => interpolate(fr, [0, 3, total - 25, total], [0, 0.12, 0.12, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })}
         />
       )}
     </AbsoluteFill>

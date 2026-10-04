@@ -13,7 +13,7 @@ export const IdeaSchema = z.object({
   trend_source: z.string().describe("Звідки тренд: TikTok, Google Trends UA, YouTube, Threads, новина тощо"),
   bridge: z.string().describe("Як тренд веде до англійської: яка фраза/слово/помилка/культурний факт"),
   format: z.enum(FORMATS),
-  hook: z.string().describe("Перші 1–2 секунди: текст на екрані, що зупиняє скрол"),
+  hook: z.string().describe("Перша репліка ролика, до 8 слів: відкриває питання, на яке хочеться знати відповідь, і НЕ відповідає на нього"),
   english_payload: z.string().describe("Що конкретно з англійської глядач забере"),
   audience_teen: z.string().describe("Чим зачепить підлітка 12–18"),
   audience_parent: z.string().describe("Чим цінне для батьків"),
@@ -35,7 +35,7 @@ export const SCENE_KINDS = ["hook", "say", "compare", "quiz", "list_item", "cta"
 
 export const SceneSchema = z.object({
   kind: z.enum(SCENE_KINDS),
-  voice: z.string().describe("Що каже диктор (укр. з англ. вставками), 1–2 речення, до 160 символів. Для quiz — лише питання"),
+  voice: z.string().describe("Що каже диктор (укр. з англ. вставками): одне речення до 12 слів (перша сцена — до 8). Для quiz — лише питання"),
   headline: z.string().describe("Великий текст на екрані, до 42 символів"),
   sub: z.string().describe("Дрібний підпис під заголовком, до 60 символів, або ''"),
   english: z.string().describe("Англійська фраза для підсвітки, або ''"),
@@ -55,7 +55,7 @@ export type Scene = z.infer<typeof SceneSchema>;
 export const ScriptSchema = z.object({
   format: z.enum(FORMATS),
   series_label: z.string().describe("Плашка рубрики зверху, до 28 символів, напр. «Як сказати англійською?»"),
-  scenes: z.array(SceneSchema).describe("4–8 сцен; перша — hook, остання — cta"),
+  scenes: z.array(SceneSchema).describe("4–6 сцен, 18–28 секунд; перша — hook, остання — cta"),
   cover_title: z.string().describe("Текст обкладинки, до 40 символів"),
   backdrop_prompt: z
     .string()
@@ -136,7 +136,7 @@ export const BeatSchema = z.object({
   speaker_name: z.string().describe("Підпис героя на екрані («Бариста», «Сілі»), для narrator — ''"),
   narration: z
     .string()
-    .describe("Репліка, яку озвучать (до 110 символів): одне коротке речення. Для en_* — англійською, для решти — українською"),
+    .describe("Репліка, яку озвучать: одне коротке речення до 10 слів (перша — до 8). Для en_* — англійською, для решти — українською"),
   delivery: z.string().describe("Як зіграти репліку (емоція/темп), напр. «розгублено», «пошепки», «сміючись»; або ''"),
   spoken: z
     .string()
@@ -156,12 +156,12 @@ export const BeatSchema = z.object({
 export type Beat = z.infer<typeof BeatSchema>;
 
 export const StorySchema = z.object({
-  hook_overlay: z.string().describe("Текст-хук у білій плашці на перших 2.5 с, до 45 символів (не дублює першу фразу дослівно)"),
+  hook_overlay: z.string().describe("Текст-хук великим планом у першому кадрі: 3–5 слів, до 28 символів; відкриває питання і не відповідає на нього"),
   visual_style: z
     .string()
     .describe("Англ. єдиний стиль фонів: стилізована 3D-анімація під Сілі (напр. 'stylized 3D animated film background, Pixar-like, warm light')"),
   locations: z.array(LocationSchema).describe(`1–${MAX_LOCATIONS} локації: діалог-сценка — 1–2; історія-факт — 3–${MAX_LOCATIONS} різні сцени`),
-  beats: z.array(BeatSchema).describe("7–9 кадрів, 30–45 секунд загалом"),
+  beats: z.array(BeatSchema).describe("6–8 кадрів, 22–32 секунди загалом (уся озвучка до 300 символів)"),
   ending_question: z.string().describe("Питання до коментарів, що звучить останнім кадром (входить в останню narration)"),
   cover_title: z.string().describe("Текст обкладинки до 40 символів — найсильніший хук"),
   music_mood: z.string().describe("Настрій музики: suspense | chill | upbeat | funny"),
@@ -176,6 +176,8 @@ export type Story = z.infer<typeof StorySchema>;
 
 export interface RenderBeat extends Beat {
   duration: number;
+  /** Seconds of silence at the start of the voice clip that the player skips. */
+  voice_lead: number;
   voice_src: string | null;
   words: RenderWord[];
 }

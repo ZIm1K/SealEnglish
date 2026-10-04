@@ -138,9 +138,9 @@ const MOODS = ["upbeat", "chill", "funny", "suspense"];
 
 export const isStory = (s: ScriptJson): s is Story & ScriptJson => Array.isArray((s as Story).beats);
 export const isEdu = (s: ScriptJson): s is Edu & ScriptJson => Array.isArray((s as Edu).scenes);
-/** Rough voice length: ~14 chars per second of speech + pauses between lines. */
+/** Rough voice length: the farm's videos run at ~12.5 chars per second of speech + gaps between lines (content-farm storySeconds). */
 const estimateSeconds = (lines: { text: string; speed?: number }[]) =>
-  Math.round(lines.reduce((a, l) => a + l.text.length / (14 * (l.speed || 1)) + 0.5, 0));
+  Math.round(lines.reduce((a, l) => a + l.text.length / (12.5 * (l.speed || 1)) + 0.25, 0) + 1);
 
 function move<T>(arr: T[], i: number, dir: -1 | 1): T[] {
   const j = i + dir;
@@ -173,7 +173,7 @@ export function StoryEditor({ value, onChange }: { value: Story & ScriptJson; on
   return (
     <>
       <Card>
-        <CardHeader title="Основне" description={`≈ ${seconds} с · ${value.beats.length} реплік (ціль: 7–9 реплік, 30–45 с)`} />
+        <CardHeader title="Основне" description={`≈ ${seconds} с · ${value.beats.length} реплік (ціль: 6–8 реплік, 22–32 с; перша — до 8 слів)`} />
         <div className="grid gap-4 p-5 sm:p-6">
           <Field label="Хук у білій плашці (перші 2.5 с)" hint="до 45 символів">
             <Input value={value.hook_overlay} onChange={(e) => onChange({ ...value, hook_overlay: e.target.value })} />

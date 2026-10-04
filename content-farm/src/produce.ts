@@ -23,6 +23,7 @@ import {
   normalizeScript,
   normalizeStory,
   refreshCaptions,
+  retentionNotes,
   rewriteWithNote,
   scriptMeta,
   writePostsBundle,
@@ -205,6 +206,8 @@ export async function saveScriptItem(
     cost_breakdown: budget.lines,
   };
   const id = await saveItem(record);
+  // Reported with the script, so a slow opening or an overlong video is fixed before it costs a render.
+  if (kind === "video") budget.notes.push(...retentionNotes(detectScript(data)));
   writeLocal(outDir(), `${stamp()}-${channel}-${slug(title)}`, { item_id: id, ...record });
   if (stored) await markIdea(stored.id, "used");
   return id;
@@ -307,7 +310,7 @@ export async function rewriteRequested(s: FarmSettings, log: Log): Promise<numbe
         cost_usd: round4(Number(item.cost_usd) + budget.spent),
         cost_breakdown: [...(item.cost_breakdown ?? []), ...budget.lines],
       });
-      await notifyScript(item.id, item.title, next, budget.spent, true, budget.notes);
+      await notifyScript(item.id, item.title, next, budget.spent, true, [...budget.notes, ...retentionNotes(next)]);
       done++;
     } catch (e) {
       await updateItem(item.id, { status: "script_rewrite" });

@@ -62,12 +62,16 @@ async function finish(s: FarmSettings, runId: string, st: PackState, final: { st
   const made: string[] = [];
   if (final.story && st.picks?.story) {
     const data = normalizeStory(withCrossPosts(final.story as object) as Story);
-    await saveScriptItem(s, st.pack_id, "tiktok", st.picks.story.idea.title, st.picks.story, data as unknown as Record<string, unknown>, budgetOf(s.max_usd_per_video, st.lines.story, st.lines.humanize_story), "video");
+    const budget = budgetOf(s.max_usd_per_video, st.lines.story, st.lines.humanize_story);
+    await saveScriptItem(s, st.pack_id, "tiktok", st.picks.story.idea.title, st.picks.story, data as unknown as Record<string, unknown>, budget, "video");
+    st.notes.push(...budget.notes.map((n) => `${CHANNEL_LABEL.tiktok}: ${n}`));
     made.push(CHANNEL_LABEL.tiktok);
   }
   if (final.script && st.picks?.edu) {
     const data = normalizeScript(withCrossPosts(final.script as object) as Script);
-    await saveScriptItem(s, st.pack_id, "stories", st.picks.edu.idea.title, st.picks.edu, data as unknown as Record<string, unknown>, budgetOf(s.max_usd_per_video, st.lines.script, st.lines.humanize_script), "video");
+    const budget = budgetOf(s.max_usd_per_video, st.lines.script, st.lines.humanize_script);
+    await saveScriptItem(s, st.pack_id, "stories", st.picks.edu.idea.title, st.picks.edu, data as unknown as Record<string, unknown>, budget, "video");
+    st.notes.push(...budget.notes.map((n) => `${CHANNEL_LABEL.stories}: ${n}`));
     made.push(CHANNEL_LABEL.stories);
   }
   if (final.posts && st.picks?.posts.length) {

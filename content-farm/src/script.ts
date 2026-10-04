@@ -24,8 +24,8 @@ import {
   type ThreadsPost,
 } from "./schema.ts";
 
-const SYSTEM = `Ти — сценарист вертикальних коротких відео (TikTok/Reels, 20–40 секунд) для бренду нижче.
-Пишеш так, щоб утримання було максимальним: хук за 1 секунду, кожна сцена додає новизну, панчлайн/відповідь ближче до кінця, CTA коротко.
+const SYSTEM = `Ти — сценарист вертикальних коротких відео (TikTok/Reels, 18–28 секунд) для бренду нижче.
+Пишеш за розділом «Утримання глядача»: хук за 1 секунду, кожна сцена додає новизну, відповідь ближче до кінця, CTA одним реченням.
 
 ${BRAND_BIBLE}
 
@@ -36,8 +36,11 @@ ${HUMAN_VOICE}
 - Сцени: hook (питання/інтрига), say (пояснення, приклад), compare (wrong vs right), quiz (3 варіанти + таймер 3 с + reveal_voice з поясненням), list_item (пункт списку), cta (фінал).
 - voice — природна жива розмовна мова, яку зачитає TTS: без емодзі, без хештегів, без дужок і скорочень. Англійські фрази пиши латиницею.
 - headline — дуже коротко, читається за пів секунди. Не дублюй voice слово в слово.
+- Перша сцена (hook): voice — до 8 слів, без вступу й назви рубрики, одразу ситуація або питання, на яке хочеться
+  знати відповідь; headline — 3–5 слів про те саме. Відповідь у першій сцені не давай.
+- 4–6 сцен. Кожна voice — одне речення до 12 слів (quiz: питання + reveal_voice до 12 слів).
 - background=image — максимум 2 сцени на відео, лише якщо ілюстрація справді підсилює (місце, ситуація). Решта — brand.
-- Загальна озвучка 55–95 слів.
+- Загальна озвучка 40–65 слів.
 - Остання сцена cta: headline на кшталт «Пробний урок — безкоштовно»; voice — «${CTA_VOICE}» (можна додати перед цим одне
   коротке речення-місток). На екрані автоматично показуються сайт і бот у Telegram — у sub їх не дублюй (sub = '').
 - backdrop_prompt — один фон-локація на все відео під тему (кімната школяра, клас, аеропорт, кав'ярня…).`;
@@ -136,8 +139,8 @@ ${HUMAN_VOICE}
 - Англійська репліка героя має бути зрозуміла з контексту, а в translation — точний короткий переклад.
 - Жодних «внутрішніх» жартів, гри слів, яку треба розшифровувати, абревіатур без пояснення, нових тем наприкінці.
 - Перевір себе: перекажи сюжет в одному реченні. Якщо не виходить — сюжет переписати.
-- Менше реплік — більше сенсу: 7–9 кадрів, 30–45 секунд. Кожна репліка або рухає сюжет, або дає емоцію/сміх. Жодних
-  «прохідних» фраз і самоповторів. Краще 7 сильних реплік, ніж 12 середніх.
+- Менше реплік — більше сенсу: 6–8 кадрів, 22–32 секунди. Кожна репліка або рухає сюжет, або дає емоцію/сміх. Жодних
+  «прохідних» фраз і самоповторів. Краще 6 сильних реплік, ніж 9 середніх.
 - Жарт має бути смішним людині, яка НЕ знає англійської: гумор — у ситуації, реакції, емоції Сілі. Гра англійських слів
   (silly/Sílі тощо) — заборонена, бо її не зрозуміють.
 - Якщо суть у тому, ЯК щось звучить (скоромовка, акцент, злиті слова) — це треба почути: у spoken запиши злиту/спотворену
@@ -154,8 +157,13 @@ ${HUMAN_VOICE}
 - delivery — як зіграти репліку: емоція, темп, гучність («пошепки, інтригуюче», «обурено», «сміючись»).
 
 ## Технічні правила
-- 7–9 кадрів (beats), разом 30–45 секунд. Кожен кадр = одна репліка (до 14 слів).
-- Перше речення — хук: найсильніший факт/інтрига. hook_overlay — ще один хук-текст у плашці (не повтор першого речення).
+- 6–8 кадрів (beats), разом 22–32 секунди; уся озвучка — до 300 символів. Кожен кадр = одна репліка до 10 слів.
+- Перша репліка — хук за розділом «Утримання глядача»: до 8 слів, відкриває питання і не відповідає на нього.
+  hook_overlay — 3–5 слів (до 28 символів) великим текстом у першому кадрі: та сама обіцянка іншими словами, теж без відповіді.
+- У першому кадрі герой уже в сцені: Сілі (seal_visible=true) з виразною позою (stand-surprised, stand-wink, stand-sad)
+  або персонаж фону. Порожня локація в першому кадрі — заборонена.
+- Друга репліка — ставка або перший крок сюжету, а не довідка. Другий гачок — у 3–4-й репліці.
+- Сусідні кадри мають відрізнятися картинкою: інший shot, інший мовець або інша локація.
 - narration зачитує TTS: без емодзі, без дужок, без скорочень, числа пиши словами, якщо їх важко прочитати. Англійські фрази латиницею.
 - Остання репліка містить ending_question (питання до коментарів); її може сказати Сілі.
 - visual_style — ЗАВЖДИ стилізована 3D-анімація під Сілі (напр. «stylized 3D animated film background, Pixar-like, warm
@@ -187,14 +195,49 @@ export function normalizeStory(story: Story): Story {
   const mood = ["suspense", "chill", "upbeat", "funny"].find((m) => story.music_mood.toLowerCase().includes(m)) ?? "suspense";
   let englishShown = 0;
   const locations = story.locations.length ? story.locations.slice(0, MAX_LOCATIONS) : [{ prompt: "cozy city street, stylized 3D", npc_side: "none" as const }];
-  const beats = story.beats.slice(0, 11).map((b) => ({
+  const beats = story.beats.slice(0, 9).map((b) => ({
     ...b,
     // The English pill belongs to narrator lines; character lines already show English in their bubble.
     english: b.speaker === "narrator" && b.english && ++englishShown <= 2 ? b.english : "",
     speed: Math.min(1.2, Math.max(0.8, b.speed || 1)),
     location: Math.min(Math.max(0, Math.round(b.location)), locations.length - 1),
   }));
+  // The first frame decides whether the viewer stays: an empty location there is a frame nobody stops for.
+  if (beats[0] && !beats[0].seal_visible && (locations[beats[0].location]?.npc_side ?? "none") === "none") {
+    beats[0] = { ...beats[0], seal_visible: true, seal_pose: "stand-surprised" };
+  }
   return { ...story, locations, beats, music_mood: mood, hashtags: story.hashtags.map((h) => h.replace(/^#/, "").replace(/\s+/g, "")) };
+}
+
+// ───────────── Retention checks ─────────────
+// What the prompt asks for and the schema can't enforce (RETENTION.md). The owner sees these next
+// to the script, before paying for voices and a render.
+
+const wordCount = (t: string) => t.split(/\s+/).filter(Boolean).length;
+const SLOW_OPENERS = /^(коли|одного разу|чи знав|чи знали|привіт|сьогодні|у цьому відео|уяви|давай|\p{Lu}\p{L}+, \d{3,4})/iu;
+/** Seconds of a story as rendered: our own videos run at about 12.5 characters a second plus the gaps between lines. */
+export const storySeconds = (story: Story) => Math.round(story.beats.reduce((a, b) => a + (b.spoken || b.narration).length / (12.5 * (b.speed || 1)) + 0.25, 0) + 1);
+
+export function retentionNotes(script: AnyScript): string[] {
+  const notes: string[] = [];
+  if (script.kind === "story") {
+    const { beats, hook_overlay } = script.data;
+    const first = beats[0]?.narration ?? "";
+    const seconds = storySeconds(script.data);
+    if (seconds > 36) notes.push(`утримання: ролик ≈ ${seconds} с (ціль 22–32 с) — скоротіть репліки`);
+    if (wordCount(first) > 9) notes.push(`утримання: перша репліка — ${wordCount(first)} слів (ціль до 8)`);
+    if (SLOW_OPENERS.test(first.trim())) notes.push("утримання: перша репліка починається зі вступу, а не з конфлікту");
+    if (hook_overlay.length > 34) notes.push(`утримання: хук на екрані — ${hook_overlay.length} символів (ціль до 28)`);
+    const longest = Math.max(0, ...beats.map((b) => wordCount(b.narration)));
+    if (longest > 13) notes.push(`утримання: є репліка на ${longest} слів (ціль до 10)`);
+  }
+  if (script.kind === "edu") {
+    const { scenes } = script.data;
+    const words = scenes.reduce((a, sc) => a + wordCount(`${sc.voice} ${sc.reveal_voice}`), 0);
+    if (words > 78) notes.push(`утримання: озвучка — ${words} слів (ціль 40–65)`);
+    if (wordCount(scenes[0]?.voice ?? "") > 10) notes.push(`утримання: перша сцена — ${wordCount(scenes[0].voice)} слів (ціль до 8)`);
+  }
+  return notes;
 }
 
 export type AnyScript =

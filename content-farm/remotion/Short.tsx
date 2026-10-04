@@ -3,7 +3,7 @@ import { AbsoluteFill, Audio, interpolate, Sequence, spring, staticFile, useCurr
 import { HANDLES } from "../src/brand.ts";
 import type { RenderProps, RenderScene } from "../src/schema.ts";
 import { Backdrop, BigCaps, Host, pill, SeriesChip, Stage, unnumbered } from "./eduParts.tsx";
-import { EnglishPill, ImageBackground, Mark, PopText } from "./parts.tsx";
+import { EnglishPill, ImageBackground, Lead, Mark, PopText } from "./parts.tsx";
 import { body, C, display } from "./theme.ts";
 
 export const sceneFrames = (s: RenderScene, fps: number) => Math.max(1, Math.round(s.duration * fps));
@@ -309,10 +309,14 @@ const SceneView: React.FC<{ scene: RenderScene; index: number; total: number; la
         </AbsoluteFill>
       )}
       <SeriesChip label={props.label} handle={props.handle} />
-      <SceneBody scene={scene} index={props.index} listNumber={props.listNumber} />
+      <Lead.Provider value={props.index === 0 ? 18 : 0}>
+        <SceneBody scene={scene} index={props.index} listNumber={props.listNumber} />
+      </Lead.Provider>
       {scene.kind !== "cta" && <BigCaps words={scene.words} until={scene.kind === "quiz" ? scene.reveal_start : Infinity} />}
       {scene.kind === "quiz" && <BigCaps words={scene.reveal_words} offset={scene.reveal_start} />}
-      <Host scene={scene} first={props.index === 0} prevCta={props.prevCta} />
+      <Lead.Provider value={props.index === 0 ? 12 : 0}>
+        <Host scene={scene} first={props.index === 0} prevCta={props.prevCta} />
+      </Lead.Provider>
       {scene.voice_src && <Audio src={staticFile(scene.voice_src)} />}
       {scene.reveal_src && (
         <Sequence from={revealFrame} layout="none">
@@ -346,7 +350,7 @@ export const Short: React.FC<RenderProps> = ({ scenes, series_label, handle, mus
           <Audio
             loop
             src={staticFile(music_src)}
-            volume={(f) => interpolate(f, [0, 15, total - 20, total], [0, 0.09, 0.09, 0], { extrapolateRight: "clamp" })}
+            volume={(f) => interpolate(f, [0, 3, total - 20, total], [0, 0.09, 0.09, 0], { extrapolateRight: "clamp" })}
           />
       )}
     </AbsoluteFill>
