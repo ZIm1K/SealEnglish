@@ -81,5 +81,5 @@ export function buildStoryProps(
       words: m?.words ?? spreadWords(beat.narration, voice),
     };
   });
-  return { hook_overlay: story.hook_overlay, handle: HANDLES.tiktok.replace(/^@?/, "@"), locations, beats, music_src, fps };
+  return { hook_overlay: story.hook_overlay, cover_title: story.cover_title || story.hook_overlay, handle: HANDLES.tiktok.replace(/^@?/, "@"), locations, beats, music_src, fps };
 }

@@ -316,6 +316,32 @@ const HookCard: React.FC<{ text: string }> = ({ text }) => {
   );
 };
 
+/**
+ * Feed cover: the story's title alone over the first scene, instead of a frame with a caption cut
+ * mid-phrase. It sits in the caption band — below the background character's face, above Sílі.
+ */
+const CoverTitle: React.FC<{ text: string }> = ({ text }) => (
+  <div style={{ position: "absolute", top: 770, left: 60, right: 60, display: "flex", justifyContent: "center" }}>
+    <div
+      style={{
+        background: C.white,
+        color: C.navy,
+        fontFamily: display,
+        fontWeight: 900,
+        fontSize: text.length > 30 ? 74 : 90,
+        lineHeight: 1.1,
+        textAlign: "center",
+        padding: "30px 40px",
+        borderRadius: 34,
+        boxShadow: "0 24px 70px rgba(0,0,0,0.5)",
+        transform: "rotate(-2deg)",
+      }}
+    >
+      {text}
+    </div>
+  </div>
+);
+
 const EnglishPill: React.FC<{ text: string }> = ({ text }) => {
   const f = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -379,7 +405,7 @@ const Outro: React.FC = () => {
   );
 };
 
-const BeatView: React.FC<{ beat: RenderBeat; prev: RenderBeat | null; loc: RenderLocation | undefined; index: number; last: boolean; hook: string; handle: string }> = (p) => {
+const BeatView: React.FC<{ beat: RenderBeat; prev: RenderBeat | null; loc: RenderLocation | undefined; index: number; last: boolean; hook: string; handle: string; cover: string | null }> = (p) => {
   const { beat } = p;
   const f = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -388,6 +414,16 @@ const BeatView: React.FC<{ beat: RenderBeat; prev: RenderBeat | null; loc: Rende
   // Last beat: once the line is over, clear the text overlays and show the subscribe call alone.
   const tail = p.last && f > frames - 1.5 * fps;
   const flash = cut ? interpolate(f, [0, 4], [0.45, 0], { extrapolateRight: "clamp" }) : 0;
+  if (p.cover !== null) {
+    return (
+      <AbsoluteFill>
+        <World beat={beat} prev={p.prev} loc={p.loc} frames={frames} />
+        <AbsoluteFill style={{ background: "linear-gradient(180deg, rgba(0,0,0,0.45) 0%, rgba(0,0,0,0) 22%)" }} />
+        <BrandMark handle={p.handle} />
+        <CoverTitle text={p.cover} />
+      </AbsoluteFill>
+    );
+  }
   return (
     <AbsoluteFill>
       <World beat={beat} prev={p.prev} loc={p.loc} frames={frames} />
@@ -414,7 +450,7 @@ const BeatView: React.FC<{ beat: RenderBeat; prev: RenderBeat | null; loc: Rende
   );
 };
 
-export const StoryVideo: React.FC<StoryProps> = ({ beats, locations, hook_overlay, handle, music_src, fps }) => {
+export const StoryVideo: React.FC<StoryProps> = ({ beats, locations, hook_overlay, cover_title, cover, handle, music_src, fps }) => {
   let from = 0;
   const total = beats.reduce((a, b) => a + beatFrames(b, fps), 0);
   return (
@@ -431,6 +467,7 @@ export const StoryVideo: React.FC<StoryProps> = ({ beats, locations, hook_overla
               last={i === beats.length - 1}
               hook={hook_overlay}
               handle={handle}
+              cover={cover && i === 0 ? cover_title : null}
             />
           </Sequence>
         );

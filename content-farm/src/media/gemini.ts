@@ -104,6 +104,8 @@ export async function drawGemini(
   outFile: string,
   withSeal: boolean,
   aspect: "9:16" | "4:5" = "9:16",
+  /** Scene-only frame on the reference-capable model: the fallback when the lite model stays overloaded. */
+  full = withSeal,
 ): Promise<void> {
   const input: Record<string, unknown>[] = [{ type: "text", text: prompt }];
   if (withSeal) {
@@ -113,12 +115,12 @@ export async function drawGemini(
     }
   }
   const json = await interact({
-    model: withSeal ? s.gemini_image_model : s.gemini_image_model_lite,
+    model: full ? s.gemini_image_model : s.gemini_image_model_lite,
     input,
     response_format: { type: "image", aspect_ratio: aspect, image_size: "1K" },
   });
   const data = findMedia(json, "image");
   if (!data) throw new Error("Gemini image: у відповіді немає зображення");
   fs.writeFileSync(outFile, Buffer.from(data, "base64"));
-  budget.add(withSeal ? "image_seal" : "image_scene", withSeal ? s.prices.gemini_image : s.prices.gemini_image_lite);
+  budget.add(withSeal ? "image_seal" : full ? "image_scene_full" : "image_scene", full ? s.prices.gemini_image : s.prices.gemini_image_lite);
 }

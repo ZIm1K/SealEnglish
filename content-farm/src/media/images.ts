@@ -5,6 +5,7 @@ import { type FarmSettings } from "../env.ts";
 import type { Budget } from "../llm.ts";
 import { drawGemini, geminiAvailable, SEAL_DESCRIPTION } from "./gemini.ts";
 import { illustrate, imagesAvailable } from "./openai.ts";
+import { isTransient, withRetry } from "./retry.ts";
 
 export interface FrameRequest {
   prompt: string;
@@ -44,7 +45,15 @@ async function generate(s: FarmSettings, budget: Budget, req: FrameRequest, outF
     ]
       .filter(Boolean)
       .join("\n");
-    return drawGemini(s, budget, prompt, outFile, req.withSeal, req.aspect ?? "9:16");
+    const draw = (full: boolean) => withRetry(() => drawGemini(s, budget, prompt, outFile, req.withSeal, req.aspect ?? "9:16", full));
+    try {
+      return await draw(req.withSeal);
+    } catch (e) {
+      // The lite model is the one that gets overloaded; one frame on the full model (2× the price)
+      // is cheaper than a video without its location.
+      if (req.withSeal || !isTransient(e) || !budget.canAfford(s.prices.gemini_image)) throw e;
+      return draw(true);
+    }
   }
   return illustrate(s, budget, req.prompt, outFile, req.aspect === "4:5" ? "1024x1024" : "1024x1536", req.style);
 }

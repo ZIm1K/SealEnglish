@@ -184,6 +184,10 @@ export interface RenderLocation extends Location {
 export interface StoryProps {
   [key: string]: unknown;
   hook_overlay: string;
+  /** Text of the feed cover (the story's cover_title, or the hook when it is empty). */
+  cover_title: string;
+  /** Render the cover instead of the video: the first scene with the cover title and no captions. */
+  cover?: boolean;
   handle: string;
   locations: RenderLocation[];
   beats: RenderBeat[];

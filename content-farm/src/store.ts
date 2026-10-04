@@ -24,6 +24,27 @@ export async function finishRun(id: string | null, patch: { status: string; cost
   await sb.from("content_runs").update({ ...patch, finished_at: new Date().toISOString() }).eq("id", id);
 }
 
+/** Verified story material from the last successful research (app_settings.content_farm_story_bank). */
+export interface StoryBank {
+  report: string;
+  saved_at: string;
+}
+
+export async function loadStoryBank(): Promise<StoryBank | null> {
+  const sb = supabase();
+  if (!sb) return null;
+  const { data } = await sb.from("app_settings").select("value").eq("key", "content_farm_story_bank").maybeSingle();
+  const bank = data?.value as StoryBank | undefined;
+  return bank?.report && bank.saved_at ? bank : null;
+}
+
+export async function saveStoryBank(report: string) {
+  const sb = supabase();
+  if (!sb) return;
+  const value: StoryBank = { report, saved_at: new Date().toISOString() };
+  await sb.from("app_settings").upsert({ key: "content_farm_story_bank", value, is_public: false, updated_at: new Date().toISOString() });
+}
+
 export async function recentTitles(limit = 60): Promise<string[]> {
   const sb = supabase();
   if (!sb) return [];

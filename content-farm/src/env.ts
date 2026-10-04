@@ -78,6 +78,16 @@ export interface FarmSettings {
   ideas_per_scan: number;
   /** Web searches Claude may run during a trend scan ($0.01 each). */
   web_searches: number;
+  /**
+   * Story material (10–12 verified stories per research) outlives one pack: reuse the saved report
+   * for this many days before researching again. 0 — research on every scan.
+   */
+  story_research_days: number;
+  /**
+   * Also write a Threads and a Telegram text inside every video script. Off: packs already carry
+   * dedicated Threads/Telegram posts, and these two fields cost output tokens twice (writer + editor).
+   */
+  video_cross_posts: boolean;
   ai_images_per_video: number;
   /** "eleven" (ElevenLabs — chosen by the owner) · "gemini" · "edge" (free fallback) · "openai". */
   tts_provider: "eleven" | "gemini" | "edge" | "openai";
@@ -129,6 +139,8 @@ export const DEFAULT_SETTINGS: FarmSettings = {
   texts_per_run: 3,
   ideas_per_scan: 10,
   web_searches: 5,
+  story_research_days: 4,
+  video_cross_posts: false,
   ai_images_per_video: 2,
   tts_provider: "eleven",
   eleven_model: "eleven_v4",

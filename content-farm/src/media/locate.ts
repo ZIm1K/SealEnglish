@@ -25,6 +25,9 @@ export async function locateHead(s: FarmSettings, budget: Budget, imageFile: str
       s,
       budget,
       what: "locate_npc",
+      // The editing model places x / y / top within 0.03 of the main model's answer (checked on
+      // three locations, 2026-10-04) at about half the price; `size` drifts more but nothing reads it.
+      cheap: true,
       schema: HeadSchema,
       effort: "low",
       system: "You locate characters on images and answer with precise normalized coordinates.",

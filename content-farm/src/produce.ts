@@ -12,6 +12,7 @@ import { buildRenderProps, buildStoryProps, type BeatMedia, type SceneAudio } fr
 import { Budget } from "./llm.ts";
 import { canDraw, drawFrame, frameCost, type FrameRequest } from "./media/images.ts";
 import { locateHead } from "./media/locate.ts";
+import { isTransient } from "./media/retry.ts";
 import { speak, type Speech } from "./media/tts.ts";
 import { notifyAdmins } from "./notify.ts";
 import { jobDir, makeBundle, pickMusic, preparePublic, PUBLIC, renderIgCard, renderVideo } from "./render.ts";
@@ -58,20 +59,31 @@ export const CHANNEL_LABEL: Record<Channel, string> = {
 
 /** Set after the first failure (e.g. provider down, no credits) so a run doesn't retry per scene. */
 let ttsDown = false;
+/** Set only by a failure that waiting won't fix (bad key, no credits); overloads are retried per picture. */
 let imagesDown = false;
 let imageError = "";
+/** Pictures that were attempted and failed — a story must not ship with any of its locations missing. */
+let imageFailures = 0;
+/** Engines other than settings.tts_provider that voiced lines of the current video. */
+const standInVoices = new Set<string>();
 /** Posts are image-first: without the picture they must not be reported as ready. */
 const noImage = () => new Error(`Не вдалося згенерувати картинку${imageError ? ` (${imageError})` : ""}. Перевірте баланс генератора зображень і затвердіть ще раз.`);
 
 async function tryDraw(s: FarmSettings, budget: Budget, req: FrameRequest, file: string, log: Log): Promise<string | null> {
-  if (imagesDown || !(await canDraw(s)) || !budget.canAfford(frameCost(s, req.withSeal) + 0.01)) return null;
+  if (imagesDown) {
+    imageFailures++;
+    return null;
+  }
+  if (!(await canDraw(s)) || !budget.canAfford(frameCost(s, req.withSeal) + 0.01)) return null;
   try {
+    // drawFrame already waits out overloads (retries with backoff, then the full model).
     await drawFrame(s, budget, req, file);
     return rel(file);
   } catch (e) {
-    if (!imagesDown) log(`  ⚠ ілюстрації недоступні в цьому запуску: ${(e as Error).message.slice(0, 160)}`);
-    imagesDown = true;
+    imageFailures++;
     imageError = (e as Error).message.replace(/\s+/g, " ").slice(0, 220);
+    log(`  ⚠ картинку не згенеровано: ${imageError.slice(0, 160)}`);
+    if (!isTransient(e)) imagesDown = true;
     return null;
   }
 }
@@ -89,7 +101,9 @@ async function trySpeak(
 ): Promise<Speech | null> {
   if (ttsDown || !text.trim()) return null;
   try {
-    return await speak(s, budget, text, base, speaker, delivery, context, opts);
+    const speech = await speak(s, budget, text, base, speaker, delivery, context, opts);
+    if (speech.provider !== s.tts_provider) standInVoices.add(speech.provider);
+    return speech;
   } catch (e) {
     ttsDown = true;
     log(`  ⚠ озвучка недоступна: ${(e as Error).message.slice(0, 160)}`);
@@ -122,11 +136,13 @@ function scriptPreview(script: AnyScript): string {
   }
 }
 
-async function notifyScript(id: string | null, title: string, script: AnyScript, cost: number, rewritten = false) {
+const warningLines = (warnings: string[]) => warnings.map((w) => `\n⚠ ${w}`).join("");
+
+async function notifyScript(id: string | null, title: string, script: AnyScript, cost: number, rewritten = false, warnings: string[] = []) {
   const link = id ? `${await siteUrl()}/app/content/?id=${id}` : "";
   await notifyAdmins({
     title,
-    summary: `${rewritten ? "✏️ Переписано за вашим коментарем" : "📝 Новий сценарій на затвердження"} · $${cost.toFixed(3)}${link ? `\nВідкрити: ${link}` : ""}`,
+    summary: `${rewritten ? "✏️ Переписано за вашим коментарем" : "📝 Новий сценарій на затвердження"} · $${cost.toFixed(3)}${link ? `\nВідкрити: ${link}` : ""}${warningLines(warnings)}`,
     details: scriptPreview(script),
   });
 }
@@ -174,7 +190,7 @@ async function saveScriptItem(
 }
 
 /** Writes one pack (2 video scripts + 3 posts) and sends the owner one Telegram message with the link. */
-export async function writePack(s: FarmSettings, ideas: PackIdeas, log: Log): Promise<number> {
+export async function writePack(s: FarmSettings, ideas: PackIdeas, log: Log, warnings: string[] = []): Promise<number> {
   const packId = randomUUID();
   const made: string[] = [];
   let total = 0;
@@ -221,7 +237,7 @@ export async function writePack(s: FarmSettings, ideas: PackIdeas, log: Log): Pr
   if (made.length) {
     await notifyAdmins({
       title: "Новий контент-пакет",
-      summary: `📦 Пакет на затвердження: ${made.length} матеріалів · $${total.toFixed(2)}\nВідкрити: ${await siteUrl()}/app/content/`,
+      summary: `📦 Пакет на затвердження: ${made.length} матеріалів · $${total.toFixed(2)}\nВідкрити: ${await siteUrl()}/app/content/${warningLines(warnings)}`,
       details: made.map((m) => `• ${m}`).join("\n"),
     });
   }
@@ -230,7 +246,7 @@ export async function writePack(s: FarmSettings, ideas: PackIdeas, log: Log): Pr
 }
 
 /** One-off video scripts on a given topic (`custom`), outside packs. */
-export async function writeScripts(s: FarmSettings, videoIdeas: StoredIdea[], log: Log): Promise<number> {
+export async function writeScripts(s: FarmSettings, videoIdeas: StoredIdea[], log: Log, warnings: string[] = []): Promise<number> {
   let made = 0;
   for (const stored of videoIdeas) {
     const budget = new Budget(s.max_usd_per_video);
@@ -242,7 +258,7 @@ export async function writeScripts(s: FarmSettings, videoIdeas: StoredIdea[], lo
           ? { kind: "story", data: normalizeStory(await writeStory(s, budget, stored.idea)) }
           : { kind: "edu", data: normalizeScript(await writeScript(s, budget, stored.idea)) };
       const id = await saveScriptItem(s, randomUUID(), channel, stored.idea.title, stored, script.data as unknown as Record<string, unknown>, budget, "video");
-      await notifyScript(id, stored.idea.title, script, budget.spent);
+      await notifyScript(id, stored.idea.title, script, budget.spent, false, warnings);
       made++;
     } catch (e) {
       log(`  ✖ ${(e as Error).message}`);
@@ -337,6 +353,7 @@ async function storyMedia(s: FarmSettings, budget: Budget, story: Story, dir: st
   const heads: RenderLocation["npc_head"][] = story.locations.map(() => null);
   const queue = story.locations.slice(0, s.images_per_story).map((loc, i) => ({ loc, i }));
   log(`  локацій: ${story.locations.length}`);
+  const failedBefore = imageFailures;
   await Promise.all(
     Array.from({ length: 3 }, async () => {
       for (let job = queue.shift(); job; job = queue.shift()) {
@@ -348,6 +365,13 @@ async function storyMedia(s: FarmSettings, budget: Budget, story: Story, dir: st
       }
     }),
   );
+  // A story is a scene: Sílі on the brand gradient instead of the café is not the video the owner
+  // approved. Stop before the render; the voices and the finished locations stay in the cache.
+  if (imageFailures > failedBefore) {
+    throw new Error(
+      `Не вдалося згенерувати фони локацій (${imageError || "генератор недоступний"}). Затвердіть ще раз: голоси й готові фони вже збережено, повтор коштує лише відсутні фони.`,
+    );
+  }
   return buildStoryProps(story, media, images, pickMusic(story.music_mood), 30, heads);
 }
 
@@ -374,7 +398,9 @@ async function produceVideoItem(s: FarmSettings, item: ItemRow, log: Log) {
   const dir = jobDir(id);
   try {
     log(`🎬 ${item.title}`);
+    standInVoices.clear();
     const props = script.kind === "story" ? await storyMedia(s, budget, script.data, dir, log) : await eduMedia(s, budget, script.data, dir, log);
+    const voiceNote = standInVoices.size ? `\n⚠ Частину реплік озвучив запасний голос (${[...standInVoices].join(", ")}) — ${s.tts_provider} був недоступний` : "";
     // The bundle snapshots the public dir, so it is built after this video's assets exist.
     log("  рендер…");
     const out = await renderVideo(await makeBundle(), props, outDir(), id);
@@ -388,11 +414,18 @@ async function produceVideoItem(s: FarmSettings, item: ItemRow, log: Log) {
       cost_usd: round4(before + budget.spent),
       cost_breakdown: [...(item.cost_breakdown ?? []), ...budget.lines],
     });
-    const sent = await notifyAdmins({
+    const note = {
       title: item.title,
-      summary: `🎬 Відео готове · ${idea?.format ?? script.kind} · ${out.seconds.toFixed(0)} с · цей запуск $${budget.spent.toFixed(3)}, разом $${(before + budget.spent).toFixed(3)}`,
+      summary: `🎬 Відео готове · ${idea?.format ?? script.kind} · ${out.seconds.toFixed(0)} с · цей запуск $${budget.spent.toFixed(3)}, разом $${(before + budget.spent).toFixed(3)}${voiceNote}`,
       details: captionsDigest(script.data),
-      videoFile: out.video,
+    };
+    // The video is already saved and marked ready; a Telegram hiccup (bots can't upload files over
+    // 50 MB) must not turn it into a failed item — fall back to a link to the cabinet.
+    const sent = await notifyAdmins({ ...note, videoFile: out.video }).catch(async (e) => {
+      log(`  ⚠ відео не надіслано в Telegram (${(e as Error).message.slice(0, 120)}) — надсилаю посилання`);
+      const link = `${await siteUrl()}/app/content/?id=${item.id}`;
+      return notifyAdmins({ ...note, summary: `${note.summary}
+Відео завелике для Telegram, дивіться в кабінеті: ${link}` }).catch(() => false);
     });
     log(`  ✔ ${out.video} · $${budget.spent.toFixed(3)}${sent ? " · надіслано в Telegram" : ""}`);
   } finally {
@@ -436,7 +469,7 @@ async function producePostItem(s: FarmSettings, item: ItemRow, log: Log) {
       summary: `✅ Готово: ${CHANNEL_LABEL[(item.channel as Channel) ?? "telegram"] ?? "пост"} · $${budget.spent.toFixed(3)}`,
       details: scriptPreview(script),
       imageFile,
-    });
+    }).catch((e) => log(`  ⚠ не надіслано в Telegram: ${(e as Error).message.slice(0, 120)}`));
     log(`  ✔ ${item.channel} · $${budget.spent.toFixed(3)}`);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -456,8 +489,15 @@ export async function produceApproved(s: FarmSettings, log: Log): Promise<number
       else await produceVideoItem(s, item, log);
       made++;
     } catch (e) {
-      log(`  ✖ ${item.title}: ${(e as Error).message}`);
-      await updateItem(item.id, { status: "failed", review_note: `Помилка виробництва: ${(e as Error).message.slice(0, 500)}` });
+      const reason = (e as Error).message.slice(0, 500);
+      log(`  ✖ ${item.title}: ${reason}`);
+      await updateItem(item.id, { status: "failed", review_note: `Помилка виробництва: ${reason}` });
+      // An approved item that silently never arrives looks like a hung farm — say what happened.
+      await notifyAdmins({
+        title: item.title,
+        summary: `❌ Не вдалося виробити: ${reason}\nВідкрити: ${await siteUrl()}/app/content/?id=${item.id}`,
+        details: "",
+      }).catch(() => undefined);
     }
   }
   return made;

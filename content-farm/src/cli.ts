@@ -3,7 +3,7 @@ import path from "node:path";
 import { DEMO_PROPS } from "../remotion/demo.ts";
 import { ROOT, saveSetting, settings, supabase } from "./env.ts";
 import { Budget } from "./llm.ts";
-import { ideate, scanTrends } from "./plan.ts";
+import { ideate, NO_SCAN, scanTrends } from "./plan.ts";
 import { pickPackIdeas, produceApproved, rewriteRequested, writePack, writeScripts } from "./produce.ts";
 import { makeBundle, preparePublic, renderVideo } from "./render.ts";
 import { finishRun, freshIdeas, recentTitles, saveIdeas, startRun } from "./store.ts";
@@ -48,7 +48,7 @@ async function main() {
       const budget = new Budget(Infinity);
       try {
         const scan =
-          command === "custom" && !flags.trends ? { signals: [], web_report: "", story_report: "" } : await scanTrends(s, budget, log);
+          command === "custom" && !flags.trends ? NO_SCAN : await scanTrends(s, budget, log);
         const count = command === "custom" ? num("count", 1) : num("ideas", 6);
         const stories = command === "custom" ? (flags.format === "edu" ? 0 : count) : 2;
         log(`Аналіз трендів і генерація ${count} ідей (історій: ${stories})…`);
@@ -59,8 +59,8 @@ async function main() {
 
         // Scripts only — media is produced after the owner approves them in the cabinet (`work`).
         let made = 0;
-        if (command === "custom") made = await writeScripts(s, stored.slice(0, 1), log);
-        else if (command !== "scan") made = await writePack(s, pickPackIdeas(stored), log);
+        if (command === "custom") made = await writeScripts(s, stored.slice(0, 1), log, scan.warnings);
+        else if (command !== "scan") made = await writePack(s, pickPackIdeas(stored), log, scan.warnings);
         await finishRun(runId, { status: "done", cost_usd: budget.spent, log: lines.join(LF), signals: scan.signals, web_report: [scan.web_report, scan.story_report].filter(Boolean).join(STORY_SEP) });
         log(`Готово. На затвердження: ${made}`);
       } catch (e) {

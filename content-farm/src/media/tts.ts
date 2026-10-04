@@ -12,6 +12,7 @@ import { alignWords } from "./align.ts";
 import { elevenAvailable, speakEleven } from "./eleven.ts";
 import { geminiAvailable, speakGemini } from "./gemini.ts";
 import { speakOpenAI } from "./openai.ts";
+import { withRetry } from "./retry.ts";
 import { spreadWords } from "./timing.ts";
 
 export interface Speech {
@@ -19,6 +20,8 @@ export interface Speech {
   file: string;
   seconds: number;
   words: RenderWord[];
+  /** Which engine actually voiced the line (differs from settings.tts_provider when it fell back). */
+  provider: string;
 }
 
 const MP3_BITRATE = 48000; // audio-24khz-48kbitrate-mono-mp3 is CBR
@@ -73,7 +76,7 @@ async function speakEdge(s: FarmSettings, text: string, outBase: string, speaker
       }));
     }
     if (!words.length) words = spreadWords(text, seconds);
-    return { file, seconds, words: attachPunctuation(text, words) };
+    return { file, seconds, words: attachPunctuation(text, words), provider: "edge" };
   } finally {
     tts.close();
     fs.rmSync(tmp, { recursive: true, force: true });
@@ -112,12 +115,16 @@ export async function speak(
   const meta = await cacheGetJson<{ ext: string; seconds: number; words: RenderWord[] }>(key);
   let result: Speech;
   if (meta && (await cacheGet(key, meta.ext, `${outBase}.${meta.ext}`))) {
-    result = { file: `${outBase}.${meta.ext}`, seconds: meta.seconds, words: meta.words };
+    result = { file: `${outBase}.${meta.ext}`, seconds: meta.seconds, words: meta.words, provider: s.tts_provider };
   } else {
     result = await speakRaw(s, budget, text, outBase, speaker, delivery, context, opts.speed ?? 1);
-    const ext = path.extname(result.file).slice(1);
-    await cachePut(key, ext, result.file, ext === "mp3" ? "audio/mpeg" : "audio/wav");
-    await cachePutJson(key, { ext, seconds: result.seconds, words: result.words });
+    // A stand-in voice must not be remembered as this line's take: once the main provider is
+    // back, the line is voiced properly instead of replaying the fallback from the cache.
+    if (result.provider === s.tts_provider) {
+      const ext = path.extname(result.file).slice(1);
+      await cachePut(key, ext, result.file, ext === "mp3" ? "audio/mpeg" : "audio/wav");
+      await cachePutJson(key, { ext, seconds: result.seconds, words: result.words });
+    }
   }
   // The voice may say a stylized version (slurred gag, stretched word); captions show the script text.
   if (opts.display && opts.display !== text) {
@@ -148,20 +155,21 @@ async function speakRaw(
       if (p === "eleven") {
         if (!(await elevenAvailable())) continue;
         const file = `${outBase}.mp3`;
-        const r = await speakEleven(s, budget, text, s.eleven_voices[speaker] ?? s.eleven_voices.narrator, lang, file, context, speed);
-        return { file, seconds: r.seconds, words: r.words.length ? r.words : await alignWords(budget, file, text, r.seconds, lang) };
+        // Rate limits and overloads pass in seconds; switching voices mid-video is the worse outcome.
+        const r = await withRetry(() => speakEleven(s, budget, text, s.eleven_voices[speaker] ?? s.eleven_voices.narrator, lang, file, context, speed), 3);
+        return { file, seconds: r.seconds, words: r.words.length ? r.words : await alignWords(budget, file, text, r.seconds, lang), provider: p };
       }
       if (p === "gemini") {
         if (!(await geminiAvailable())) continue;
         const file = `${outBase}.wav`;
         const style = [v.style, delivery].filter(Boolean).join("; ");
-        const seconds = await speakGemini(s, budget, text, v.gemini, style, file);
-        return { file, seconds, words: await alignWords(budget, file, text, seconds, lang) };
+        const seconds = await withRetry(() => speakGemini(s, budget, text, v.gemini, style, file), 3);
+        return { file, seconds, words: await alignWords(budget, file, text, seconds, lang), provider: p };
       }
       if (p === "edge") return await speakEdge(s, text, outBase, speaker);
       const file = `${outBase}.wav`;
       const seconds = await speakOpenAI(s, budget, text, file, v.openai);
-      return { file, seconds, words: await alignWords(budget, file, text, seconds, lang) };
+      return { file, seconds, words: await alignWords(budget, file, text, seconds, lang), provider: p };
     } catch (e) {
       lastErr = e;
     }

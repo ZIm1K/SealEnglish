@@ -39,16 +39,23 @@ ${HUMAN_VOICE}
   коротке речення-місток). На екрані автоматично показуються сайт і бот у Telegram — у sub їх не дублюй (sub = '').
 - backdrop_prompt — один фон-локація на все відео під тему (кімната школяра, клас, аеропорт, кав'ярня…).`;
 
+/** Threads/Telegram texts inside a video script — written only when settings.video_cross_posts is on. */
+const CROSS_POSTS = { threads_post: true, telegram_post: true } as const;
+const NO_CROSS_POSTS = { threads_post: "", telegram_post: "" };
+const scriptSchema = (s: FarmSettings) => (s.video_cross_posts ? ScriptSchema : ScriptSchema.omit(CROSS_POSTS));
+const storySchema = (s: FarmSettings) => (s.video_cross_posts ? StorySchema : StorySchema.omit(CROSS_POSTS));
+
 export async function writeScript(s: FarmSettings, budget: Budget, idea: Idea): Promise<Script> {
+  const schema = scriptSchema(s);
   const draft = await structured({
     s,
     budget,
     what: "script",
-    schema: ScriptSchema,
+    schema,
     system: SYSTEM,
     prompt: `Напиши сценарій за ідеєю:\n${JSON.stringify(idea, null, 2)}`,
   });
-  return humanize(s, budget, ScriptSchema, draft, "script");
+  return { ...NO_CROSS_POSTS, ...(await humanize(s, budget, schema, draft, "script")) };
 }
 
 export async function writeTextPost(s: FarmSettings, budget: Budget, idea: Idea): Promise<TextPost> {
@@ -158,16 +165,17 @@ ${HUMAN_VOICE}
 - Обов'язково заповни sources URL-ами з facts, якщо вони є.`;
 
 export async function writeStory(s: FarmSettings, budget: Budget, idea: Idea): Promise<Story> {
+  const schema = storySchema(s);
   const draft = await structured({
     s,
     budget,
     what: "story",
-    schema: StorySchema,
+    schema,
     effort: "medium",
     system: STORY_SYSTEM,
     prompt: `Напиши вірусну історію за ідеєю:\n${JSON.stringify(idea, null, 2)}`,
   });
-  return humanize(s, budget, StorySchema, draft, "story");
+  return { ...NO_CROSS_POSTS, ...(await humanize(s, budget, schema, draft, "story")) };
 }
 
 export function normalizeStory(story: Story): Story {
@@ -210,15 +218,23 @@ export async function rewriteWithNote(s: FarmSettings, budget: Budget, script: A
 ## Режим правки
 Власник школи переглянув цей матеріал і залишив коментар. Виконай коментар точно і повністю. Усе, про що коментар
 не каже, — збережи (структуру, вдалі репліки, службові поля), лише узгодь, якщо зміни цього вимагають.`;
-  const prompt = `Коментар власника:\n«${note}»\n\nПоточна версія (JSON):\n${JSON.stringify(script.data, null, 2)}`;
+  // The current version is shown in the shape the answer must have (without the cross-posts when they are off).
+  const shown = (schema: { safeParse: (d: unknown) => { success: boolean; data?: unknown } }) => {
+    const parsed = schema.safeParse(script.data);
+    return JSON.stringify(parsed.success ? parsed.data : script.data, null, 2);
+  };
+  const promptFor = (current: string) => `Коментар власника:\n«${note}»\n\nПоточна версія (JSON):\n${current}`;
   if (script.kind === "story") {
-    const data = await structured({ s, budget, what: "rewrite_story", schema: StorySchema, effort: "medium", system, prompt });
-    return { kind: "story", data: normalizeStory(data) };
+    const schema = storySchema(s);
+    const data = await structured({ s, budget, what: "rewrite_story", schema, effort: "medium", system, prompt: promptFor(shown(schema)) });
+    return { kind: "story", data: normalizeStory({ ...NO_CROSS_POSTS, ...data }) };
   }
   if (script.kind === "edu") {
-    const data = await structured({ s, budget, what: "rewrite_script", schema: ScriptSchema, effort: "medium", system, prompt });
-    return { kind: "edu", data: normalizeScript(data) };
+    const schema = scriptSchema(s);
+    const data = await structured({ s, budget, what: "rewrite_script", schema, effort: "medium", system, prompt: promptFor(shown(schema)) });
+    return { kind: "edu", data: normalizeScript({ ...NO_CROSS_POSTS, ...data }) };
   }
+  const prompt = promptFor(JSON.stringify(script.data, null, 2));
   const schemas = { threads: ThreadsPostSchema, telegram: TelegramPostSchema, instagram: InstagramPostSchema, text: TextPostSchema } as const;
   const data = await structured({ s, budget, what: `rewrite_${script.kind}`, schema: schemas[script.kind], effort: "low", system, prompt });
   return { kind: script.kind, data } as AnyScript;

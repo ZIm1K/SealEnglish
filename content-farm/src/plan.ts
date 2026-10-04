@@ -3,6 +3,7 @@ import { BRAND_BIBLE } from "./brand.ts";
 import type { FarmSettings } from "./env.ts";
 import { research, structured, type Budget } from "./llm.ts";
 import { IdeasSchema, type Idea } from "./schema.ts";
+import { loadStoryBank, saveStoryBank } from "./store.ts";
 import { collectSignals, type TrendSignal } from "./trends/sources.ts";
 
 export interface TrendScan {
@@ -10,7 +11,11 @@ export interface TrendScan {
   web_report: string;
   /** Verified story material (facts + sources) for the viral story format. */
   story_report: string;
+  /** What the owner should know about this scan (e.g. the web search returned nothing). */
+  warnings: string[];
 }
+
+export const NO_SCAN: TrendScan = { signals: [], web_report: "", story_report: "", warnings: [] };
 
 const today = () =>
   new Date().toLocaleDateString("uk-UA", { timeZone: "Europe/Kyiv", day: "numeric", month: "long", year: "numeric", weekday: "long" });
@@ -19,8 +24,18 @@ export async function scanTrends(s: FarmSettings, budget: Budget, log: (m: strin
   log("Збираю сигнали з відкритих джерел…");
   const signals = await collectSignals(log);
 
+  const warnings: string[] = [];
+  // A report written without a single successful search is the model's memory dressed up as
+  // research: drop it so ideation doesn't treat it as verified, and tell the owner.
+  const verified = (r: { text: string; searches: number }, name: string) => {
+    if (r.searches) return r.text;
+    warnings.push(`веб-пошук не дав результатів (${name}) — ідеї без свіжих підтверджених джерел, факти перевірте вручну`);
+    log(`  ⚠ ${warnings.at(-1)}`);
+    return "";
+  };
+
   log(`Claude шукає соцмережеві тренди (до ${s.web_searches} пошуків)…`);
-  const web_report = await research({
+  const trends = await research({
     s,
     budget,
     what: "trend_scan",
@@ -36,8 +51,18 @@ export async function scanTrends(s: FarmSettings, budget: Budget, log: (m: strin
 Виключи політику, війну, трагедії й усе російське.
 Формат відповіді: маркований список 15–25 пунктів. Кожен пункт: назва тренду — що це — чому актуально зараз — джерело.`,
   });
+  const web_report = verified(trends, "тренди");
+
+  // One research finds 10–12 stories and a pack uses one or two, so the report is kept and reused
+  // (already-made ideas are excluded by title) instead of paying for a new search every pack.
+  const bank = s.story_research_days > 0 ? await loadStoryBank() : null;
+  const bankAge = bank ? (Date.now() - new Date(bank.saved_at).getTime()) / 864e5 : Infinity;
+  if (bank && bankAge < s.story_research_days) {
+    log(`Сировина для історій: беру збережену (${bankAge.toFixed(1)} дн. тому; оновлюється раз на ${s.story_research_days} дн.)`);
+    return { signals, web_report, story_report: bank.report, warnings };
+  }
   log("Claude шукає сировину для вірусних історій (перевірені факти з джерелами)…");
-  const story_report = await research({
+  const stories = await research({
     s,
     budget,
     what: "story_research",
@@ -54,7 +79,10 @@ export async function scanTrends(s: FarmSettings, budget: Budget, log: (m: strin
 Виключи політику, війну, трагедії, смерті, все російське.
 Для кожної: заголовок-хук — 3–6 ключових фактів (хто, де, коли, цифри) — англійська пасхалка — 1–2 URL джерел.`,
   });
-  return { signals, web_report, story_report };
+  const story_report = verified(stories, "історії");
+  if (story_report) await saveStoryBank(story_report);
+  // Research failed this time: an older verified report still beats ideas from memory.
+  return { signals, web_report, story_report: story_report || bank?.report || "", warnings };
 }
 
 export async function ideate(opts: {

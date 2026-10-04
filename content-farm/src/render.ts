@@ -81,10 +81,20 @@ export async function renderVideo(serveUrl: string, props: RenderProps | StoryPr
     },
   });
   process.stdout.write("\n");
-  // Cover: Short — end of the hook scene (headline fully shown); Story — hook card on the first beat.
-  const first = isStory(props) ? Math.min(props.beats[0].duration, 2) : props.scenes[0].duration;
-  const coverFrame = Math.min(composition.durationInFrames - 1, Math.round(first * props.fps) - 2);
-  await renderStill({ composition, serveUrl, output: cover, inputProps: props, frame: Math.max(0, coverFrame), imageFormat: "jpeg", jpegQuality: 88 });
+  // Cover: Short — end of the hook scene (headline fully shown); Story — a dedicated frame with the
+  // cover title over the first scene, taken once Sílі has walked in.
+  const coverFrame = isStory(props) ? 24 : Math.round(props.scenes[0].duration * props.fps) - 2;
+  // Remotion renders with the props resolved at selectComposition, so the cover gets its own.
+  const coverProps = isStory(props) ? { ...props, cover: true } : props;
+  await renderStill({
+    composition: isStory(props) ? await selectComposition({ serveUrl, id, inputProps: coverProps }) : composition,
+    serveUrl,
+    output: cover,
+    inputProps: coverProps,
+    frame: Math.max(0, Math.min(composition.durationInFrames - 1, coverFrame)),
+    imageFormat: "jpeg",
+    jpegQuality: 88,
+  });
   return { video, cover, seconds: composition.durationInFrames / composition.fps };
 }
 
