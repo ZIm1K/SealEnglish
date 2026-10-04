@@ -1,7 +1,7 @@
 // Stage 1–2: trend slice → AI analysis → ranked ideas that bridge a trend to English.
 import { BRAND_BIBLE } from "./brand.ts";
 import type { FarmSettings } from "./env.ts";
-import { research, structured, type Budget } from "./llm.ts";
+import { research, structured, type Budget, type StructuredCall } from "./llm.ts";
 import { IdeasSchema, type Idea } from "./schema.ts";
 import { loadStoryBank, saveStoryBank } from "./store.ts";
 import { collectSignals, type TrendSignal } from "./trends/sources.ts";
@@ -89,22 +89,29 @@ export async function scanTrends(s: FarmSettings, budget: Budget, log: (m: strin
   return { signals, web_report, story_report: story_report || bank?.report || "", warnings };
 }
 
-export async function ideate(opts: {
-  s: FarmSettings;
-  budget: Budget;
+export interface IdeateInput {
   scan: TrendScan;
   recentTitles: string[];
   count: number;
   /** How many of `count` must be viral stories. */
   stories: number;
   topic?: string;
-}): Promise<Idea[]> {
+}
+
+export async function ideate(opts: IdeateInput & { s: FarmSettings; budget: Budget }): Promise<Idea[]> {
+  const { ideas } = await structured({ s: opts.s, budget: opts.budget, ...ideateCall(opts) });
+  return rankIdeas(ideas);
+}
+
+/** Drops malformed ideas (truncated titles, empty fields) the model occasionally appends; best first. */
+export const rankIdeas = (ideas: Idea[]) =>
+  ideas.filter((i) => i.title.trim().length >= 10 && i.trend.trim().length >= 5 && i.bridge.trim().length >= 5).sort((a, b) => ideaScore(b) - ideaScore(a));
+
+export function ideateCall(opts: IdeateInput): StructuredCall<typeof IdeasSchema> {
   const signals = opts.scan.signals
     .map((t) => `- [${t.source}] ${t.title}${t.traffic ? ` (${t.traffic})` : ""}${t.detail ? ` — ${t.detail}` : ""}`)
     .join("\n");
-  const { ideas } = await structured({
-    s: opts.s,
-    budget: opts.budget,
+  return {
     what: "ideate",
     schema: IdeasSchema,
     effort: "high",
@@ -130,10 +137,7 @@ ${opts.topic ? `\n## Побажання власника на цей запус�
 - Оцінки чесні: score_any_audience високий лише якщо ролик розважить навіть людину без інтересу до англійської.
 - Відкидай усе, що порушує заборони бренду, навіть якщо це дуже вірусно.
 - Ідея має бути смішною/цікавою людині без знання англійської: гумор із ситуації та реакції. Гра англійських слів — лише якщо її миттєво пояснено українською в самому ролику.`,
-  });
-  // Drop malformed ideas (truncated titles, empty fields) the model occasionally appends.
-  const valid = ideas.filter((i) => i.title.trim().length >= 10 && i.trend.trim().length >= 5 && i.bridge.trim().length >= 5);
-  return valid.sort((a, b) => ideaScore(b) - ideaScore(a));
+  };
 }
 
 export const ideaScore = (i: Idea) =>

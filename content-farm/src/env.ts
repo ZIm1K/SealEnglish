@@ -104,6 +104,12 @@ export interface FarmSettings {
   production_attempts: number;
   /** Id of the farm's root folder on Google Drive; filled in on first use. */
   drive_folder_id: string;
+  /** Write packs through the Message Batches API: half the text cost, answers arrive asynchronously. */
+  pack_batch: boolean;
+  /** How long a run keeps polling a batch before leaving it to the next run. */
+  batch_wait_seconds: number;
+  /** A batch stage still unanswered after this long is cancelled and its calls are made live. */
+  batch_max_hours: number;
   eleven_model: string;
   eleven_speed: number;
   /** ElevenLabs voice_id per role; override any of them in app_settings.content_farm.eleven_voices. */
@@ -159,6 +165,9 @@ export const DEFAULT_SETTINGS: FarmSettings = {
   tts_fallback: false,
   production_attempts: 3,
   drive_folder_id: "",
+  pack_batch: true,
+  batch_wait_seconds: 240,
+  batch_max_hours: 3,
   eleven_model: "eleven_v4",
   eleven_speed: 0.98,
   // Premade ElevenLabs voices (multilingual). Replace with Voice Library picks via `npm run farm -- voices`.

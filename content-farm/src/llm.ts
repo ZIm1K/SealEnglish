@@ -10,6 +10,8 @@ export interface TokenUse {
   cache_write: number;
   cache_read: number;
   out: number;
+  /** Answered through the Message Batches API (billed at half price). */
+  batch?: boolean;
 }
 
 export class Budget {
@@ -53,7 +55,7 @@ const MODEL_RATES: Record<string, [number, number, number]> = {
   "claude-haiku-4-5": [1, 5, 0.1],
 };
 
-function charge(budget: Budget, s: FarmSettings, what: string, model: string, usage: Anthropic.Beta.BetaUsage, research = false) {
+function charge(budget: Budget, s: FarmSettings, what: string, model: string, usage: Anthropic.Beta.BetaUsage, research = false, batch = false) {
   const fallbackIn = research ? s.prices.research_in_per_m : s.prices.llm_in_per_m;
   const [inRate, outRate, readRate] = MODEL_RATES[model] ?? [fallbackIn, research ? s.prices.research_out_per_m : s.prices.llm_out_per_m, fallbackIn * 0.1];
   const searches = usage.server_tool_use?.web_search_requests ?? 0;
@@ -62,10 +64,12 @@ function charge(budget: Budget, s: FarmSettings, what: string, model: string, us
     cache_write: usage.cache_creation_input_tokens ?? 0,
     cache_read: usage.cache_read_input_tokens ?? 0,
     out: usage.output_tokens,
+    ...(batch ? { batch } : {}),
   };
   budget.add(
     what,
-    (tokens.in * inRate + tokens.cache_write * inRate * 1.25 + tokens.cache_read * readRate + tokens.out * outRate) / 1e6 + searches * s.prices.web_search,
+    ((tokens.in * inRate + tokens.cache_write * inRate * 1.25 + tokens.cache_read * readRate + tokens.out * outRate) / 1e6) * (batch ? 0.5 : 1) +
+      searches * s.prices.web_search,
     tokens,
   );
 }
@@ -76,10 +80,8 @@ function assertNotRefused(msg: Anthropic.Beta.BetaMessage, what: string) {
   }
 }
 
-/** Structured call: returns data validated against the zod schema. */
-export async function structured<S extends z.ZodType>(opts: {
-  s: FarmSettings;
-  budget: Budget;
+/** One structured request, described apart from how it is sent: live (`structured`) or in a batch. */
+export interface StructuredCall<S extends z.ZodType = z.ZodType> {
   what: string;
   system: string;
   prompt: string;
@@ -89,40 +91,105 @@ export async function structured<S extends z.ZodType>(opts: {
   cheap?: boolean;
   /** Optional images (JPEG/PNG/WebP) sent before the prompt, e.g. to locate things on a frame. */
   images?: { media_type: "image/jpeg" | "image/png" | "image/webp"; data: string }[];
-}): Promise<z.infer<S>> {
-  const c = await claude();
+}
+
+const modelOf = (s: FarmSettings, call: StructuredCall) => (call.cheap ? s.edit_model : s.model);
+
+function messageParams(s: FarmSettings, call: StructuredCall) {
   const content: Anthropic.Beta.BetaContentBlockParam[] = [
-    ...(opts.images ?? []).map((img) => ({ type: "image" as const, source: { type: "base64" as const, ...img } })),
-    { type: "text", text: opts.prompt },
+    ...(call.images ?? []).map((img) => ({ type: "image" as const, source: { type: "base64" as const, ...img } })),
+    { type: "text", text: call.prompt },
   ];
-  const format = betaZodOutputFormat(opts.schema);
-  const model = opts.cheap ? opts.s.edit_model : opts.s.model;
+  return {
+    model: modelOf(s, call),
+    max_tokens: 16000,
+    output_config: { effort: call.effort ?? ("medium" as const), format: betaZodOutputFormat(call.schema) },
+    // No cache_control: every call here has its own output schema and effort, which are part of
+    // the cached prefix, so nothing is ever read back and a breakpoint only adds the 25% write
+    // surcharge (measured 2026-10-04: cache_read stayed 0 across ideate → story → humanize).
+    system: call.system,
+    messages: [{ role: "user" as const, content }],
+  };
+}
+
+/** The answer parsed against the call's schema, or what was wrong with it. */
+function readAnswer<S extends z.ZodType>(call: StructuredCall<S>, msg: Anthropic.Beta.BetaMessage): { data: z.infer<S> } | { problem: string } {
+  const text = msg.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
+  try {
+    const parsed = call.schema.safeParse(JSON.parse(text));
+    if (parsed.success) return { data: parsed.data as z.infer<S> };
+    return { problem: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") };
+  } catch {
+    return { problem: `невалідний JSON (stop_reason=${msg.stop_reason})` };
+  }
+}
+
+/** Structured call: returns data validated against the zod schema. */
+export async function structured<S extends z.ZodType>(opts: StructuredCall<S> & { s: FarmSettings; budget: Budget }): Promise<z.infer<S>> {
+  const c = await claude();
+  const params = messageParams(opts.s, opts);
   for (let attempt = 1; ; attempt++) {
     // create + own validation (not .parse) so a schema miss is billed and retried, not thrown blind.
-    const msg = await c.beta.messages.create({
-      ...FALLBACK,
-      model,
-      max_tokens: 16000,
-      output_config: { effort: opts.effort ?? "medium", format },
-      // No cache_control: every call here has its own output schema and effort, which are part of
-      // the cached prefix, so nothing is ever read back and a breakpoint only adds the 25% write
-      // surcharge (measured 2026-10-04: cache_read stayed 0 across ideate → story → humanize).
-      system: opts.system,
-      messages: [{ role: "user", content }],
-    });
-    charge(opts.budget, opts.s, opts.what, model, msg.usage, opts.cheap);
+    const msg = await c.beta.messages.create({ ...FALLBACK, ...params });
+    charge(opts.budget, opts.s, opts.what, params.model, msg.usage, opts.cheap);
     assertNotRefused(msg, opts.what);
-    const text = msg.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
-    let problem: string;
-    try {
-      const parsed = opts.schema.safeParse(JSON.parse(text));
-      if (parsed.success) return parsed.data as z.infer<S>;
-      problem = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
-    } catch {
-      problem = `невалідний JSON (stop_reason=${msg.stop_reason})`;
-    }
-    if (attempt >= 2) throw new Error(`${opts.what}: відповідь не пройшла схему — ${problem}`);
+    const answer = readAnswer(opts, msg);
+    if ("data" in answer) return answer.data;
+    if (attempt >= 2) throw new Error(`${opts.what}: відповідь не пройшла схему — ${answer.problem}`);
   }
+}
+
+// ───────────── Message Batches: the same calls at half price, answered asynchronously ─────────────
+
+/** Submits the calls as one batch and returns its id. Keys become custom_ids ([A-Za-z0-9_-], ≤ 64). */
+export async function submitBatch(s: FarmSettings, calls: Record<string, StructuredCall>): Promise<string> {
+  const c = await claude();
+  // No server-side refusal fallback here: the Batches API rejects that parameter. A refused or
+  // failed request is simply answered live by the caller.
+  const batch = await c.beta.messages.batches.create({
+    requests: Object.entries(calls).map(([custom_id, call]) => ({ custom_id, params: messageParams(s, call) })),
+  });
+  return batch.id;
+}
+
+/**
+ * The batch's answers once it has ended — parsed data per key, or an Error for a request that
+ * failed, was refused or didn't match its schema — or null while it is still processing (polls for
+ * up to `waitMs`). Successful answers are charged to `budgets[key]` at the batch rate.
+ */
+export async function collectBatch(
+  s: FarmSettings,
+  id: string,
+  calls: Record<string, StructuredCall>,
+  budgets: Record<string, Budget>,
+  waitMs: number,
+): Promise<Record<string, unknown> | null> {
+  const c = await claude();
+  for (const deadline = Date.now() + waitMs; ; ) {
+    const batch = await c.beta.messages.batches.retrieve(id);
+    if (batch.processing_status === "ended") break;
+    if (Date.now() >= deadline) return null;
+    await new Promise((r) => setTimeout(r, 15_000));
+  }
+  const answers: Record<string, unknown> = {};
+  for await (const row of await c.beta.messages.batches.results(id)) {
+    const call = calls[row.custom_id];
+    if (!call) continue;
+    if (row.result.type !== "succeeded") {
+      answers[row.custom_id] = new Error(`${call.what}: запит у batch ${row.result.type}`);
+      continue;
+    }
+    const msg = row.result.message;
+    charge(budgets[row.custom_id], s, call.what, modelOf(s, call), msg.usage, call.cheap, true);
+    const answer = msg.stop_reason === "refusal" ? { problem: "модель відмовилась" } : readAnswer(call, msg);
+    answers[row.custom_id] = "data" in answer ? answer.data : new Error(`${call.what}: ${answer.problem}`);
+  }
+  return answers;
+}
+
+export async function cancelBatch(id: string): Promise<void> {
+  const c = await claude();
+  await c.beta.messages.batches.cancel(id).catch(() => undefined);
 }
 
 export interface Research {

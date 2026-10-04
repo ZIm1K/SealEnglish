@@ -48,7 +48,9 @@ async function main() {
         // The scheduler wakes the job every morning; packs are 48 hours apart whatever the calendar
         // says (a cron "every 2nd day of the month" fires on the 31st and again on the 1st).
         const hours = await hoursSinceLastPack();
-        if (hours !== null && hours < 47) return log(`Пропускаю: останній пакет був ${hours.toFixed(0)} год тому (між пакетами 48 год). Запустити все одно: --force`);
+        // 30 h, not 47: with a daily wake-up any threshold between 24 and 48 gives the 48-hour rhythm,
+        // and this one also survives a pack that was started by hand later in the day.
+        if (hours !== null && hours < 30) return log(`Пропускаю: останній пакет був ${hours.toFixed(0)} год тому (пакети виходять через день). Запустити все одно: --force`);
       }
       const runId = await startRun(command);
       const budget = new Budget(Infinity);
@@ -57,12 +59,6 @@ async function main() {
           command === "custom" && !flags.trends ? NO_SCAN : await scanTrends(s, budget, log);
         const count = command === "custom" ? num("count", 1) : num("ideas", 6);
         const stories = command === "custom" ? (flags.format === "edu" ? 0 : count) : 2;
-        log(`Аналіз трендів і генерація ${count} ідей (історій: ${stories})…`);
-        const ideas = await ideate({ s, budget, scan, recentTitles: await recentTitles(), count, stories, topic: flags.topic });
-        const stored = await saveIdeas(runId, ideas);
-        for (const [i, { idea }] of stored.entries()) log(`  ${i + 1}. [${idea.format}] ${idea.title} — ${idea.trend}`);
-        log(`Аналіз коштував $${budget.spent.toFixed(3)}`);
-
         const warnings = [...scan.warnings];
         // A pack's two videos voice ≈ 2 500 characters; warn while there is still time to top up,
         // because without the voice the videos won't be produced at all.
@@ -71,6 +67,21 @@ async function main() {
           const left = await elevenCharactersLeft();
           if (left !== null && left < 5000) warnings.push(`ElevenLabs: лишилось ${left} символів — цього не вистачить на два пакети, поповніть до затвердження відео`);
         }
+        const input = { scan, recentTitles: await recentTitles(), count, stories, topic: flags.topic };
+
+        // Nobody waits for the morning pack, so its texts go through the Batches API at half price
+        // (src/pack.ts); the run is finished by this process or by a later `work` run.
+        if ((command === "pack" || command === "daily") && s.pack_batch && runId && flags.live !== "true") {
+          const { startBatchPack } = await import("./pack.ts");
+          await startBatchPack(s, runId, input, warnings, budget.spent, lines, log);
+          return;
+        }
+
+        log(`Аналіз трендів і генерація ${count} ідей (історій: ${stories})…`);
+        const ideas = await ideate({ s, budget, ...input });
+        const stored = await saveIdeas(runId, ideas);
+        for (const [i, { idea }] of stored.entries()) log(`  ${i + 1}. [${idea.format}] ${idea.title} — ${idea.trend}`);
+        log(`Аналіз коштував $${budget.spent.toFixed(3)}`);
 
         // Scripts only — media is produced after the owner approves them in the cabinet (`work`).
         let made = 0;
@@ -140,6 +151,13 @@ async function main() {
       return;
     }
 
+    case "backup": {
+      // Weekly export of the school's tables to Google Drive (see src/backup.ts).
+      const { backupDatabase } = await import("./backup.ts");
+      await backupDatabase(s, log);
+      return;
+    }
+
     case "kick-setup": {
       // Stores a Google service-account key in the Vault so the farm-kick Edge Function can start
       // this job right after an approval. The key file is removed once it is stored.
@@ -201,7 +219,10 @@ async function main() {
     }
 
     case "work": {
-      // Frequent, cheap when idle: rewrite scripts the owner commented on, produce approved ones.
+      // Frequent, cheap when idle: move a pack that waits on a batch, rewrite scripts the owner
+      // commented on, produce approved ones.
+      const { advancePack } = await import("./pack.ts");
+      await advancePack(s, log).catch((e) => log(`  ✖ пакет: ${(e as Error).message}`));
       const rewritten = await rewriteRequested(s, log);
       const produced = await produceApproved(s, log);
       if (rewritten || produced) log(`Переписано: ${rewritten} · вироблено: ${produced}`);
@@ -211,14 +232,16 @@ async function main() {
     default:
       console.log(`Seal English — контент-ферма
 
-  npm run farm -- daily [--videos 2] [--texts 3] [--topic "…"]
-      зріз трендів → аналіз ШІ → ідеї → сценарії на затвердження (кабінет → «Контент-ферма»)
+  npm run farm -- pack [--force] [--live] [--topic "…"]
+      зріз трендів → ідеї → пакет сценаріїв на затвердження (кабінет → «Контент-ферма»)
+      --force — не чекати 48 год від попереднього пакета; --live — без Batch API (одразу, повна ціна)
   npm run farm -- scan [--ideas 10]          лише тренди та ідеї (збережуться в базі)
   npm run farm -- produce [--videos 1]       сценарії зі свіжих збережених ідей
   npm run farm -- work                       переписати сценарії за коментарями + виробити затверджені (кожні 15 хв)
   npm run farm -- custom --topic "…" [--format story|edu] [--trends]
       відео на задану тему: story — вірусна історія (за замовчуванням), edu — навчальний ролик
   npm run farm -- voices                     список голосів ElevenLabs (для вибору голосу кожної ролі)
+  npm run farm -- backup                     резервна копія таблиць бази на Google Drive
   npm run farm -- kick-setup --key <file>    зберегти ключ сервісного акаунта, щоб затвердження одразу запускало ферму
   npm run farm -- drive-migrate              скопіювати відео із Supabase на Google Drive
   npm run farm -- storage-cleanup [--yes]    перелік (з --yes — видалення) відео в Supabase, які вже не потрібні

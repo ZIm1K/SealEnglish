@@ -4,7 +4,7 @@ import { z } from "zod";
 import { BRAND_BIBLE, CTA_VOICE, HANDLES, HUMAN_VOICE } from "./brand.ts";
 import type { FarmSettings } from "./env.ts";
 import { humanize } from "./humanize.ts";
-import { structured, type Budget } from "./llm.ts";
+import { structured, type Budget, type StructuredCall } from "./llm.ts";
 import {
   InstagramPostSchema,
   MAX_LOCATIONS,
@@ -45,20 +45,22 @@ ${HUMAN_VOICE}
 /** Threads/Telegram texts inside a video script — written only when settings.video_cross_posts is on. */
 const CROSS_POSTS = { threads_post: true, telegram_post: true } as const;
 const NO_CROSS_POSTS = { threads_post: "", telegram_post: "" };
-const scriptSchema = (s: FarmSettings) => (s.video_cross_posts ? ScriptSchema : ScriptSchema.omit(CROSS_POSTS));
-const storySchema = (s: FarmSettings) => (s.video_cross_posts ? StorySchema : StorySchema.omit(CROSS_POSTS));
+export const scriptSchema = (s: FarmSettings) => (s.video_cross_posts ? ScriptSchema : ScriptSchema.omit(CROSS_POSTS));
+export const storySchema = (s: FarmSettings) => (s.video_cross_posts ? StorySchema : StorySchema.omit(CROSS_POSTS));
+/** A written (and edited) video script as the rest of the farm expects it: with the cross-post fields present. */
+export const withCrossPosts = <T extends object>(data: T) => ({ ...NO_CROSS_POSTS, ...data });
+
+export const scriptCall = (s: FarmSettings, idea: Idea): StructuredCall<ReturnType<typeof scriptSchema>> => ({
+  what: "script",
+  schema: scriptSchema(s),
+  system: SYSTEM,
+  prompt: `Напиши сценарій за ідеєю:\n${JSON.stringify(idea, null, 2)}`,
+});
 
 export async function writeScript(s: FarmSettings, budget: Budget, idea: Idea): Promise<Script> {
-  const schema = scriptSchema(s);
-  const draft = await structured({
-    s,
-    budget,
-    what: "script",
-    schema,
-    system: SYSTEM,
-    prompt: `Напиши сценарій за ідеєю:\n${JSON.stringify(idea, null, 2)}`,
-  });
-  return { ...NO_CROSS_POSTS, ...(await humanize(s, budget, schema, draft, "script")) };
+  const call = scriptCall(s, idea);
+  const draft = await structured({ s, budget, ...call });
+  return withCrossPosts(await humanize(s, budget, call.schema, draft, "script"));
 }
 
 export async function writeTextPost(s: FarmSettings, budget: Budget, idea: Idea): Promise<TextPost> {
@@ -167,18 +169,18 @@ ${HUMAN_VOICE}
 - Не вигадуй факти. Використовуй лише facts з ідеї; якщо їх немає — це POV/вигадана історія, подавай саме так.
 - Обов'язково заповни sources URL-ами з facts, якщо вони є.`;
 
+export const storyCall = (s: FarmSettings, idea: Idea): StructuredCall<ReturnType<typeof storySchema>> => ({
+  what: "story",
+  schema: storySchema(s),
+  effort: "medium",
+  system: STORY_SYSTEM,
+  prompt: `Напиши вірусну історію за ідеєю:\n${JSON.stringify(idea, null, 2)}`,
+});
+
 export async function writeStory(s: FarmSettings, budget: Budget, idea: Idea): Promise<Story> {
-  const schema = storySchema(s);
-  const draft = await structured({
-    s,
-    budget,
-    what: "story",
-    schema,
-    effort: "medium",
-    system: STORY_SYSTEM,
-    prompt: `Напиши вірусну історію за ідеєю:\n${JSON.stringify(idea, null, 2)}`,
-  });
-  return { ...NO_CROSS_POSTS, ...(await humanize(s, budget, schema, draft, "story")) };
+  const call = storyCall(s, idea);
+  const draft = await structured({ s, budget, ...call });
+  return withCrossPosts(await humanize(s, budget, call.schema, draft, "story"));
 }
 
 export function normalizeStory(story: Story): Story {
@@ -315,14 +317,14 @@ ${HUMAN_VOICE}
   (image_sub); фон — image_prompt. Під фото — допис, що розгортає думку, з прикладами і питанням до коментарів.
 - Три пости — на ТРИ різні теми з трьох ідей (по одній на мережу), кожна ідея — у найкращій для неї мережі.`;
 
+export const postsCall = (ideas: Idea[]): StructuredCall<typeof PostsBundleSchema> => ({
+  what: "posts",
+  schema: PostsBundleSchema,
+  system: POSTS_SYSTEM,
+  prompt: `Ідеї для постів (обери, яка куди пасує найкраще):\n${JSON.stringify(ideas, null, 2)}`,
+});
+
 export async function writePostsBundle(s: FarmSettings, budget: Budget, ideas: Idea[]): Promise<PostsBundle> {
-  const draft = await structured({
-    s,
-    budget,
-    what: "posts",
-    schema: PostsBundleSchema,
-    system: POSTS_SYSTEM,
-    prompt: `Ідеї для постів (обери, яка куди пасує найкраще):\n${JSON.stringify(ideas, null, 2)}`,
-  });
+  const draft = await structured({ s, budget, ...postsCall(ideas) });
   return humanize(s, budget, PostsBundleSchema, draft, "posts");
 }

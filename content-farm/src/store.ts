@@ -45,6 +45,50 @@ export async function saveStoryBank(report: string) {
   await sb.from("app_settings").upsert({ key: "content_farm_story_bank", value, is_public: false, updated_at: new Date().toISOString() });
 }
 
+// ───────────── A pack that spans several runs (see src/pack.ts) ─────────────
+
+/** Saves the pack's state and renews this process's hold on the run. */
+export async function saveRunState(id: string, state: unknown) {
+  const sb = supabase();
+  if (!sb) return;
+  const { error } = await sb.from("content_runs").update({ state, locked_until: new Date(Date.now() + 20 * 60_000).toISOString() }).eq("id", id);
+  if (error) throw error;
+}
+
+/** Takes the run for this process (20 minutes, renewed by saveRunState); false if another process holds it. */
+export async function claimRun(id: string): Promise<boolean> {
+  const sb = supabase();
+  if (!sb) return false;
+  const now = new Date();
+  const { data } = await sb
+    .from("content_runs")
+    .update({ locked_until: new Date(now.getTime() + 20 * 60_000).toISOString() })
+    .eq("id", id)
+    .or(`locked_until.is.null,locked_until.lt."${now.toISOString()}"`)
+    .select("id");
+  return !!data?.length;
+}
+
+export async function releaseRun(id: string) {
+  const sb = supabase();
+  if (sb) await sb.from("content_runs").update({ locked_until: null }).eq("id", id);
+}
+
+/** The pack that is waiting on a batch, if any. */
+export async function runningPack<T = import("./pack.ts").PackState>(): Promise<{ id: string; state: T } | null> {
+  const sb = supabase();
+  if (!sb) return null;
+  const { data } = await sb
+    .from("content_runs")
+    .select("id, state")
+    .eq("status", "running")
+    .in("kind", ["pack", "daily"])
+    .not("state", "is", null)
+    .order("started_at", { ascending: false })
+    .limit(1);
+  return data?.[0] ? { id: data[0].id as string, state: data[0].state as T } : null;
+}
+
 /** Hours since the last pack started (failed runs don't count); null when there was none. */
 export async function hoursSinceLastPack(): Promise<number | null> {
   const sb = supabase();

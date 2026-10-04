@@ -157,7 +157,7 @@ function scriptPreview(script: AnyScript): string {
   }
 }
 
-const warningLines = (warnings: string[]) => warnings.map((w) => `\n⚠ ${w}`).join("");
+export const warningLines = (warnings: string[]) => warnings.map((w) => `\n⚠ ${w}`).join("");
 
 async function notifyScript(id: string | null, title: string, script: AnyScript, cost: number, rewritten = false, warnings: string[] = []) {
   const link = id ? `${await siteUrl()}/app/content/?id=${id}` : "";
@@ -183,7 +183,7 @@ export function pickPackIdeas(ideas: StoredIdea[]): PackIdeas {
   return { story, edu, posts };
 }
 
-async function saveScriptItem(
+export async function saveScriptItem(
   s: FarmSettings,
   packId: string,
   channel: Channel,

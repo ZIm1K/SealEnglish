@@ -3,7 +3,7 @@
 import type { z } from "zod";
 import { BRAND_BIBLE, HUMAN_VOICE } from "./brand.ts";
 import type { FarmSettings } from "./env.ts";
-import { structured, type Budget } from "./llm.ts";
+import { structured, type Budget, type StructuredCall } from "./llm.ts";
 
 const SYSTEM = `Ти — прискіпливий літературний редактор SMM-команди. Отримуєш JSON з контентом і повертаєш ТОЙ САМИЙ JSON
 (та сама структура, та сама кількість елементів у масивах, ті самі значення enum/boolean/чисел), де переписано лише
@@ -26,20 +26,20 @@ ${HUMAN_VOICE}
 ## Контекст бренду
 ${BRAND_BIBLE}`;
 
+export const humanizeCall = <S extends z.ZodType>(schema: S, draft: z.infer<S>, what: string): StructuredCall<S> => ({
+  what: `humanize_${what}`,
+  cheap: true,
+  schema,
+  effort: "low",
+  system: SYSTEM,
+  prompt: `Відредагуй цей JSON:\n${JSON.stringify(draft, null, 2)}`,
+});
+
 export async function humanize<S extends z.ZodType>(s: FarmSettings, budget: Budget, schema: S, draft: z.infer<S>, what: string): Promise<z.infer<S>> {
   if (!s.humanize) return draft;
   for (let attempt = 1; ; attempt++) {
     try {
-      return await structured({
-        s,
-        budget,
-        what: `humanize_${what}`,
-        cheap: true,
-        schema,
-        effort: "low",
-        system: SYSTEM,
-        prompt: `Відредагуй цей JSON:\n${JSON.stringify(draft, null, 2)}`,
-      });
+      return await structured({ s, budget, ...humanizeCall(schema, draft, what) });
     } catch (e) {
       if (attempt < 2) continue;
       // The draft is still usable; a failed polish must not cost the whole item — but the owner
