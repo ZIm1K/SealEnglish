@@ -7,6 +7,7 @@ import { AlertTriangle, BookMarked, Camera, CheckCircle2, Loader2, Mic, Plus, Ro
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/form";
 import { Badge, Skeleton } from "@/components/ui/misc";
+import { useRecorder } from "@/components/app/recorder";
 import { callFunction, supabase } from "@/lib/supabase";
 import { MISTAKE_LABEL, type Lesson, type LessonSummary, type MistakeCategory, type MistakeItem, type Profile } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -107,6 +108,9 @@ function Editor({ lesson, saved, roster, aiEnabled, onNotes, onSaved }: {
   });
   const [withTranscript, setWithTranscript] = useState(true);
   const useTranscript = transcript?.status === "ready" && withTranscript;
+  // "recording" in the database while nothing is being recorded here: the stop never reached ai-transcribe
+  const rec = useRecorder();
+  const interrupted = transcript?.status === "recording" && !(rec?.active?.lessonId === lesson.id && rec.phase !== "idle");
   const retranscribe = useMutation({
     mutationFn: () => callFunction("ai-transcribe", { action: "transcribe", lesson_id: lesson.id }),
     onSuccess: () => toast.success("Урок розшифровано"),
@@ -220,10 +224,10 @@ function Editor({ lesson, saved, roster, aiEnabled, onNotes, onSaved }: {
                 </details>
               )}
             </>
-          ) : transcript.status === "failed" ? (
+          ) : transcript.status === "failed" || interrupted ? (
             <div className="flex flex-wrap items-center gap-2">
               <AlertTriangle className="size-4 text-coral-600" />
-              <span className="flex-1 text-coral-800">{transcript.error ?? "Не вдалося розшифрувати запис"}</span>
+              <span className="flex-1 text-coral-800">{interrupted ? "Запис зупинено, але не розшифровано — аудіо збережено" : transcript.error ?? "Не вдалося розшифрувати запис"}</span>
               <Button type="button" size="sm" variant="outline" onClick={() => retranscribe.mutate()} loading={retranscribe.isPending}><RotateCcw /> Спробувати ще раз</Button>
             </div>
           ) : (

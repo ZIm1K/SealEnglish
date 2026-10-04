@@ -57,7 +57,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       loading,
       refreshProfile: () => loadProfile(session?.user.id),
       signOut: async () => {
-        await supabase.auth.signOut();
+        // local: signing out here must not kill this account's sessions on other devices (e.g. a lesson being recorded)
+        await supabase.auth.signOut({ scope: "local" });
         setProfile(null);
       },
     }),
