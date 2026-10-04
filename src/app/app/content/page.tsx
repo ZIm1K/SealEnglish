@@ -216,7 +216,7 @@ function Editor({ id }: { id: string }) {
     update.mutate(
       // attempts: the farm counts failed production runs per approval, so a new approval starts over.
       { script: draft, status: noMedia ? "review" : "approved", review_note: null, attempts: 0 },
-      { onSuccess: () => toast.success("Затверджено", { description: "Ферма згенерує матеріал протягом ~30 хвилин і надішле в Telegram." }) },
+      { onSuccess: () => toast.success("Затверджено", { description: "Ферма вже генерує матеріал і надішле його в Telegram — зазвичай за 5–10 хвилин." }) },
     );
   const askRewrite = () =>
     update.mutate(
@@ -225,7 +225,7 @@ function Editor({ id }: { id: string }) {
         onSuccess: () => {
           setNoteOpen(false);
           setNote("");
-          toast.success("Відправлено на переписування", { description: "Нова версія прийде в Telegram протягом ~30 хвилин." });
+          toast.success("Відправлено на переписування", { description: "Нова версія прийде в Telegram за кілька хвилин." });
         },
       },
     );
@@ -250,7 +250,7 @@ function Editor({ id }: { id: string }) {
 
       {(item.status === "approved" || item.status === "rendering") && (
         <Card className="mb-5 flex items-center gap-3 p-4 text-sm text-ink-soft">
-          <Loader2 className="size-5 animate-spin text-seal-500" /> Генерується: голоси, фони, рендер. Зазвичай до 30 хвилин — сторінка оновиться сама.
+          <Loader2 className="size-5 animate-spin text-seal-500" /> Генерується: голоси, фони, рендер. Зазвичай 5–10 хвилин — сторінка оновиться сама.
         </Card>
       )}
       {(item.status === "script_rewrite" || item.status === "rewriting") && (

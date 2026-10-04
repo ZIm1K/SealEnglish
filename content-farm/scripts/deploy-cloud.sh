@@ -59,7 +59,7 @@ schedule() { # name, cron, body
 schedule seal-farm-pack "0 6 * * *" '{"overrides":{"containerOverrides":[{"args":["pack"]}]}}'
 # Work: an approval starts the job at once (farm-kick Edge Function); this tick is the safety net
 # and what retries items after a provider outage. Idle runs exit in seconds.
-schedule seal-farm-work "*/30 6-23 * * *" '{}'
+schedule seal-farm-work "0 6-23 * * *" '{}'
 # Backup: every Monday night the school's tables are exported to Google Drive (src/backup.ts).
 schedule seal-farm-backup "0 4 * * 1" '{"overrides":{"containerOverrides":[{"args":["backup"]}]}}'
 
