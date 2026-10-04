@@ -1,12 +1,12 @@
 // Google Drive as the farm's video store. Videos are ~30 MB each and would fill the Supabase
-// bucket within weeks, so they live on the owner's Drive; Supabase keeps covers, post images and
-// the asset cache. Access is OAuth with the drive.file scope: the farm sees only what it created.
-import { spawn } from "node:child_process";
-import { randomBytes } from "node:crypto";
+// bucket within weeks, so they live on the school's Google Drive; Supabase keeps covers, post
+// images and the asset cache.
+//
+// Access reuses the school's Google connection (cabinet → Налаштування → Інтеграції, the same one
+// that creates Meet links): its OAuth client and refresh token sit in the Vault, and the
+// drive.file scope lets the farm see only the files it created itself.
 import fs from "node:fs";
-import http from "node:http";
-import path from "node:path";
-import { ROOT, saveSetting, secret, type FarmSettings } from "./env.ts";
+import { saveSetting, secret, supabase, type FarmSettings } from "./env.ts";
 import { withRetry } from "./media/retry.ts";
 
 const SCOPE = "https://www.googleapis.com/auth/drive.file";
@@ -19,12 +19,19 @@ const ROOT_FOLDER = "Seal English — контент-ферма";
 export const driveViewUrl = (id: string) => `https://drive.google.com/file/d/${id}/view`;
 
 async function credentials() {
-  const [id, key, refresh] = await Promise.all([secret("driveClientId"), secret("driveClientSecret"), secret("driveRefreshToken")]);
+  const [id, key, refresh] = await Promise.all([secret("googleClientId"), secret("googleClientSecret"), secret("googleRefreshToken")]);
   return id && key && refresh ? { id, key, refresh } : null;
 }
 
-export async function driveAvailable() {
-  return !!(await credentials());
+let granted: boolean | null = null;
+/** True once the school's Google account is connected with the Drive scope (re-connect after the scope was added). */
+export async function driveAvailable(): Promise<boolean> {
+  if (granted !== null) return granted;
+  const sb = supabase();
+  if (!sb || !(await credentials())) return (granted = false);
+  const { data } = await sb.from("app_settings").select("value").eq("key", "google_account").maybeSingle();
+  const scopes = String((data?.value as { scopes?: string } | null)?.scopes ?? "");
+  return (granted = scopes.split(/\s+/).includes(SCOPE));
 }
 
 let token: { value: string; expires: number } | null = null;
@@ -32,7 +39,7 @@ let token: { value: string; expires: number } | null = null;
 async function accessToken(): Promise<string> {
   if (token && Date.now() < token.expires) return token.value;
   const c = await credentials();
-  if (!c) throw new Error("Google Drive не підключено (запустіть: npm run farm -- drive-auth)");
+  if (!c) throw new Error("Google не підключено (кабінет → Налаштування → Інтеграції)");
   const res = await fetch(TOKEN_URL, {
     method: "POST",
     body: new URLSearchParams({ client_id: c.id, client_secret: c.key, refresh_token: c.refresh, grant_type: "refresh_token" }),
@@ -64,7 +71,7 @@ async function folder(name: string, parent?: string): Promise<string> {
 
 const folders = new Map<string, string>();
 /** "Seal English — контент-ферма / <sub…>": the root id is remembered in settings, the rest per run. */
-async function folderPath(s: FarmSettings, ...sub: string[]): Promise<string> {
+export async function folderPath(s: FarmSettings, ...sub: string[]): Promise<string> {
   const key = sub.join("/");
   if (folders.has(key)) return folders.get(key)!;
   let id = s.drive_folder_id;
@@ -109,65 +116,3 @@ export async function uploadToDrive(s: FarmSettings, file: string, name: string,
 
 /** Month folder for a video, so the Drive stays browsable: Відео / 2026-10. */
 export const videoFolder = () => ["Відео", new Date().toISOString().slice(0, 7)];
-
-// ───────────────────────── one-time consent (`npm run farm -- drive-auth`) ─────────────────────────
-
-function setEnvValue(name: string, value: string) {
-  const file = path.join(ROOT, ".env");
-  const lines = fs.existsSync(file) ? fs.readFileSync(file, "utf8").split(/\r?\n/) : [];
-  const at = lines.findIndex((l) => l.startsWith(`${name}=`));
-  if (at >= 0) lines[at] = `${name}=${value}`;
-  else lines.push(`${name}=${value}`);
-  fs.writeFileSync(file, lines.filter((l, i) => l || i < lines.length - 1).join("\n") + "\n");
-  process.env[name] = value;
-}
-
-/**
- * Installed-app OAuth flow: opens Google's consent page, catches the redirect on a loopback port,
- * exchanges the code for a refresh token and stores it in content-farm/.env (never printed).
- */
-export async function authorizeDrive(s: FarmSettings, log: (m: string) => void): Promise<void> {
-  const [id, key] = await Promise.all([secret("driveClientId"), secret("driveClientSecret")]);
-  if (!id || !key) throw new Error("У content-farm/.env немає GOOGLE_DRIVE_CLIENT_ID і GOOGLE_DRIVE_CLIENT_SECRET (OAuth-клієнт типу Desktop app)");
-  const state = randomBytes(16).toString("hex");
-  const code = await new Promise<{ code: string; redirect: string }>((resolve, reject) => {
-    const server = http.createServer((req, res) => {
-      const url = new URL(req.url ?? "/", "http://127.0.0.1");
-      if (!url.searchParams.has("code") && !url.searchParams.has("error")) return void res.writeHead(404).end();
-      const ok = url.searchParams.get("state") === state && url.searchParams.has("code");
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      res.end(`<p style="font:18px system-ui;padding:40px">${ok ? "Готово — Google Drive підключено. Вкладку можна закрити." : "Не вдалося: згоду не надано або запит не збігається."}</p>`);
-      server.close();
-      if (ok) resolve({ code: url.searchParams.get("code")!, redirect });
-      else reject(new Error(`згоду не отримано (${url.searchParams.get("error") ?? "state не збігається"})`));
-    });
-    let redirect = "";
-    server.listen(0, "127.0.0.1", () => {
-      redirect = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
-      const consent = `https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams({
-        client_id: id,
-        redirect_uri: redirect,
-        response_type: "code",
-        scope: SCOPE,
-        access_type: "offline",
-        prompt: "consent",
-        state,
-      })}`;
-      log(`Відкрийте в браузері й надайте доступ:\n${consent}\n`);
-      const [cmd, args] = process.platform === "win32" ? ["cmd", ["/c", "start", "", consent.replace(/&/g, "^&")]] : process.platform === "darwin" ? ["open", [consent]] : ["xdg-open", [consent]];
-      spawn(cmd as string, args as string[], { stdio: "ignore", detached: true }).on("error", () => undefined);
-    });
-    setTimeout(() => reject(new Error("час очікування згоди вийшов (10 хв)")), 10 * 60_000).unref();
-  });
-  const res = await fetch(TOKEN_URL, {
-    method: "POST",
-    body: new URLSearchParams({ client_id: id, client_secret: key, code: code.code, redirect_uri: code.redirect, grant_type: "authorization_code" }),
-  });
-  if (!res.ok) throw new Error(`обмін коду не вдався: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
-  const json = (await res.json()) as { refresh_token?: string };
-  if (!json.refresh_token) throw new Error("Google не повернув refresh-токен — відкличте доступ застосунку в myaccount.google.com/permissions і повторіть");
-  setEnvValue("GOOGLE_DRIVE_REFRESH_TOKEN", json.refresh_token);
-  token = null;
-  const root = await folderPath(s);
-  log(`Google Drive підключено. Тека ферми: https://drive.google.com/drive/folders/${root}\nТокен збережено в content-farm/.env; щоб він потрапив у хмару, потрібен деплой.`);
-}

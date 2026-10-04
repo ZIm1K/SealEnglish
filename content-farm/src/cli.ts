@@ -79,19 +79,12 @@ async function main() {
       return;
     }
 
-    case "drive-auth": {
-      // One-time consent in the browser; stores the refresh token in content-farm/.env.
-      const { authorizeDrive } = await import("./drive.ts");
-      await authorizeDrive(s, log);
-      return;
-    }
-
     case "drive-migrate": {
       // Copies videos that still live in the Supabase bucket to Google Drive and points their items
       // at the copies. Nothing is deleted here — see `storage-cleanup`.
       const { driveAvailable, driveViewUrl, uploadToDrive } = await import("./drive.ts");
       const sb = supabase();
-      if (!sb || !(await driveAvailable())) throw new Error("Потрібні SUPABASE_SERVICE_ROLE_KEY і підключений Google Drive (drive-auth)");
+      if (!sb || !(await driveAvailable())) throw new Error("Google ще не підключено з доступом до Диска: кабінет → Налаштування → Інтеграції → підключити Google ще раз");
       const fs = await import("node:fs");
       const os = await import("node:os");
       const { data: items, error } = await sb.from("content_items").select("id, title, video_path, created_at").not("video_path", "is", null).is("drive_file_id", null).order("created_at");
@@ -205,7 +198,6 @@ async function main() {
   npm run farm -- custom --topic "…" [--format story|edu] [--trends]
       відео на задану тему: story — вірусна історія (за замовчуванням), edu — навчальний ролик
   npm run farm -- voices                     список голосів ElevenLabs (для вибору голосу кожної ролі)
-  npm run farm -- drive-auth                 одноразово підключити Google Drive (згода в браузері)
   npm run farm -- drive-migrate              скопіювати відео із Supabase на Google Drive
   npm run farm -- storage-cleanup [--yes]    перелік (з --yes — видалення) відео в Supabase, які вже не потрібні
   npm run farm -- demo                       тестовий рендер без API-ключів

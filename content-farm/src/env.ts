@@ -42,10 +42,10 @@ const SECRETS = {
   eleven: ["ELEVENLABS_API_KEY", "elevenlabs_api_key"],
   /** Groq key (same one the lesson transcripts use) — Whisper word timestamps for captions. */
   stt: ["STT_API_KEY", "stt_api_key"],
-  /** OAuth client (Desktop app) and the owner's refresh token for Google Drive — see src/drive.ts. */
-  driveClientId: ["GOOGLE_DRIVE_CLIENT_ID", "google_drive_client_id"],
-  driveClientSecret: ["GOOGLE_DRIVE_CLIENT_SECRET", "google_drive_client_secret"],
-  driveRefreshToken: ["GOOGLE_DRIVE_REFRESH_TOKEN", "google_drive_refresh_token"],
+  /** The school's Google connection (cabinet → Інтеграції), reused for Google Drive — see src/drive.ts. */
+  googleClientId: ["GOOGLE_CLIENT_ID", "google_client_id"],
+  googleClientSecret: ["GOOGLE_CLIENT_SECRET", "google_client_secret"],
+  googleRefreshToken: ["GOOGLE_REFRESH_TOKEN", "google_refresh_token"],
 } as const;
 
 const cache = new Map<string, string | null>();

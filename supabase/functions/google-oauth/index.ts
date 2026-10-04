@@ -1,4 +1,4 @@
-// Connect the school's Google account (Calendar + Meet) via OAuth 2.0.
+// Connect the school's Google account (Calendar + Meet, Drive for the content farm) via OAuth 2.0.
 //   POST {action:"start"}      (admin JWT) → { url } to redirect the browser to
 //   GET  ?code=…&state=…       Google callback → stores refresh token in Vault → redirects back to the site
 //   POST {action:"disconnect"} (admin JWT)
@@ -7,7 +7,9 @@ import {
   siteUrl,
 } from "../_shared/core.ts";
 
-const SCOPES = ["openid", "email", "https://www.googleapis.com/auth/calendar.events"];
+// drive.file: the content farm stores its videos on this account's Drive and can only see the
+// files it created there (content-farm/src/drive.ts).
+const SCOPES = ["openid", "email", "https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/drive.file"];
 const redirectUri = () => `${functionsUrl()}/google-oauth`;
 
 function redirect(url: string): Response {
