@@ -12,6 +12,7 @@ import { ROOT, type FarmSettings } from "./env.ts";
 import { buildRenderProps, buildStoryProps, type BeatMedia, type SceneAudio } from "./layout.ts";
 import { Budget } from "./llm.ts";
 import { canDraw, drawFrame, frameCost, type FrameRequest } from "./media/images.ts";
+import { mentionsSeal } from "./media/gemini.ts";
 import { locateHead } from "./media/locate.ts";
 import { isTransient } from "./media/retry.ts";
 import { speak, type Speech } from "./media/tts.ts";
@@ -496,12 +497,12 @@ async function producePostItem(s: FarmSettings, item: ItemRow, log: Log) {
     if (script.kind === "telegram" || script.kind === "text") {
       const prompt = script.data.image_prompt;
       if (prompt) {
-        const src = await tryDraw(s, budget, { prompt, withSeal: false, aspect: "4:5" }, path.join(dir, "img.jpg"), log);
+        const src = await tryDraw(s, budget, { prompt, withSeal: mentionsSeal(prompt), aspect: "4:5" }, path.join(dir, "img.jpg"), log);
         if (!src) throw noImage();
         imageFile = path.join(PUBLIC, src);
       }
     } else if (script.kind === "instagram") {
-      const bg = await tryDraw(s, budget, { prompt: script.data.image_prompt, withSeal: false, aspect: "4:5" }, path.join(dir, "bg.jpg"), log);
+      const bg = await tryDraw(s, budget, { prompt: script.data.image_prompt, withSeal: mentionsSeal(script.data.image_prompt), aspect: "4:5" }, path.join(dir, "bg.jpg"), log);
       if (!bg) throw noImage();
       imageFile = path.join(dir, "card.jpg");
       await renderIgCard(await makeBundle(), { image_src: bg, headline: script.data.image_headline, sub: script.data.image_sub, handle: HANDLES.instagram }, imageFile);

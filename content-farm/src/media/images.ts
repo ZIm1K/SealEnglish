@@ -1,5 +1,5 @@
-// Frame illustrations: Gemini (Sílі kept on-model via reference renders; cheap lite model for
-// scene-only frames) or OpenAI as a fallback (no Sílі reference).
+// Frame illustrations: Gemini (Sílі kept on-model via reference renders — post pictures that
+// mention him; cheap lite model for scene-only frames) or OpenAI as a fallback (no Sílі reference).
 import { cacheGet, cacheKey, cachePut } from "../cache.ts";
 import { type FarmSettings } from "../env.ts";
 import type { Budget } from "../llm.ts";
@@ -40,7 +40,7 @@ async function generate(s: FarmSettings, budget: Budget, req: FrameRequest, outF
       `Scene: ${req.prompt}`,
       `Style: ${req.style || "stylized 3D animated film still, Pixar-like lighting, soft pastel colors with sky blue and coral accents"}.`,
       req.aspect === "4:5"
-        ? "Portrait 4:5 feed image, clear focal point. No text, letters, captions, logos or watermarks."
+        ? "Portrait 4:5 feed image, clear focal point. No text, letters, captions, logos or watermarks; books, signs and screens stay blank."
         : "Vertical 9:16 frame, key action in the upper two thirds, cinematic depth of field. No text, letters, captions, logos or watermarks.",
     ]
       .filter(Boolean)

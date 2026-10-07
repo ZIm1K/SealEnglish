@@ -92,10 +92,23 @@ function wavSeconds(buf: Buffer): number {
 }
 
 /** Reference renders of Sílі sent with every "Sílі in frame" request (max 4 per the API). */
-const SEAL_REFS = ["stand-happy.webp", "wave-happy.webp", "read-happy.webp"];
+const SEAL_REFS = ["stand-happy.webp", "stand-surprised.webp", "read-happy.webp", "wave-happy.webp"];
 
-export const SEAL_DESCRIPTION =
-  "Sílі — the cute chubby baby seal mascot shown in the reference images: sky-blue fur, white belly and muzzle, big dark glossy eyes, pink cheeks, small navy whiskers, often holding a red-coral book. Keep his exact proportions, colors and 3D Pixar-like clay look; he can walk upright, gesture and use flippers like hands.";
+/** A scene prompt that asks for Sílі (or any seal — the brand has only one). */
+export const mentionsSeal = (prompt: string) => /\b(seals?|mascots?|sili)\b|sílі|сілі|тюлен/i.test(prompt);
+
+// Without the references and this description the model draws a generic seal: furry, darker,
+// dressed up (2026-10-07). Every trait it got wrong is spelled out here.
+export const SEAL_DESCRIPTION = [
+  "Sílі, the brand mascot — the SAME character as in the attached reference images. Any seal the scene mentions is him. Copy the references exactly; change only his pose and facial expression.",
+  "- Material: smooth matte soft-vinyl / clay toy surface, like a 3D designer toy. NO fur, no hair strands, no realistic animal texture.",
+  "- Color: light sky blue (#7FB4F5) all over; clean white muzzle and one big white oval belly patch.",
+  "- Shape: chubby and short, a big round head about as large as the body, no neck, three small rounded bumps on top of the head, short stubby arms with mitten-like flippers, short feet, a small rounded tail.",
+  "- Face: big round dark-navy eyes with one white highlight, thin short navy eyebrows, a small navy nose, round coral-pink cheeks, three thin navy whiskers on each side. Cute, friendly, baby-like.",
+  "- He wears nothing: no scarf, bandana, clothes, hat or glasses. Headphones or another prop only if the scene asks for it.",
+  "- His book is small, coral-red with a navy spine and blank covers.",
+  "He stands upright and uses his flippers like hands. There is exactly one Sílі in the picture, lit by the scene's light and standing in it naturally, with contact shadows.",
+].join("\n");
 
 export async function drawGemini(
   s: FarmSettings,
