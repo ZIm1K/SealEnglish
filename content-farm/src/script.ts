@@ -8,6 +8,7 @@ import { structured, type Budget, type StructuredCall } from "./llm.ts";
 import {
   InstagramPostSchema,
   MAX_LOCATIONS,
+  POST_CHANNELS,
   PostsBundleSchema,
   ScriptSchema,
   StorySchema,
@@ -16,6 +17,7 @@ import {
   ThreadsPostSchema,
   type Idea,
   type InstagramPost,
+  type PostChannel,
   type PostsBundle,
   type Script,
   type Story,
@@ -368,14 +370,22 @@ ${HUMAN_VOICE}
   (image_sub); фон — image_prompt. Під фото — допис, що розгортає думку, з прикладами і питанням до коментарів.
 - Три пости — на ТРИ різні теми з трьох ідей (по одній на мережу), кожна ідея — у найкращій для неї мережі.`;
 
-export const postsCall = (ideas: Idea[]): StructuredCall<typeof PostsBundleSchema> => ({
+const POST_NAMES: Record<PostChannel, string> = { threads: "Threads", telegram: "Telegram", instagram: "Instagram" };
+
+/** The posts schema narrowed to the networks the pack was ordered for. */
+export const postsSchema = (channels: readonly PostChannel[] = POST_CHANNELS): z.ZodType<Partial<PostsBundle>> =>
+  channels.length === POST_CHANNELS.length ? PostsBundleSchema : PostsBundleSchema.pick(Object.fromEntries(channels.map((c) => [c, true])) as { [K in PostChannel]?: true });
+
+export const postsCall = (ideas: Idea[], channels: readonly PostChannel[] = POST_CHANNELS): StructuredCall<z.ZodType<Partial<PostsBundle>>> => ({
   what: "posts",
-  schema: PostsBundleSchema,
+  schema: postsSchema(channels),
   system: POSTS_SYSTEM,
-  prompt: `Ідеї для постів (обери, яка куди пасує найкраще):\n${JSON.stringify(ideas, null, 2)}`,
+  prompt: `Ідеї для постів (обери, яка куди пасує найкраще):\n${JSON.stringify(ideas, null, 2)}${
+    channels.length === POST_CHANNELS.length ? "" : `\n\nЦього разу потрібні лише пости для: ${channels.map((c) => POST_NAMES[c]).join(", ")} — по одній ідеї на мережу. Для інших мереж нічого не пиши.`
+  }`,
 });
 
-export async function writePostsBundle(s: FarmSettings, budget: Budget, ideas: Idea[]): Promise<PostsBundle> {
-  const draft = await structured({ s, budget, ...postsCall(ideas) });
-  return humanize(s, budget, PostsBundleSchema, draft, "posts");
+export async function writePostsBundle(s: FarmSettings, budget: Budget, ideas: Idea[], channels: readonly PostChannel[] = POST_CHANNELS): Promise<Partial<PostsBundle>> {
+  const draft = await structured({ s, budget, ...postsCall(ideas, channels) });
+  return humanize(s, budget, postsSchema(channels), draft, "posts");
 }

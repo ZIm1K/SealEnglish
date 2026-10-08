@@ -6,11 +6,11 @@ import { Suspense, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ArrowLeft, CheckCircle2, Clapperboard, FileText, Loader2, MessageSquareText, Save, Wand2, XCircle } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Clapperboard, FileText, Loader2, MessageSquareText, Save, Sparkles, Wand2, XCircle } from "lucide-react";
 import { EmptyState, PageHeader } from "@/components/app/AppShell";
 import { useMe } from "@/components/app/session";
 import { Button } from "@/components/ui/button";
-import { Segmented, Textarea } from "@/components/ui/form";
+import { Checkbox, Segmented, Textarea } from "@/components/ui/form";
 import { Badge, Card, Skeleton } from "@/components/ui/misc";
 import { Dialog, DialogContent } from "@/components/ui/overlay";
 import { supabase } from "@/lib/supabase";
@@ -75,6 +75,136 @@ function ContentInner() {
 
 const CHANNEL_ORDER = ["tiktok", "stories", "threads", "telegram", "instagram"];
 
+/** What a pack can consist of: the owner ticks the networks (each has its own kind of post) before ordering. */
+const MATERIALS = [
+  { channel: "tiktok", label: "🎵 TikTok", type: "відео-історія з Сілі" },
+  { channel: "stories", label: "📲 Stories", type: "навчальне відео" },
+  { channel: "threads", label: "🧵 Threads", type: "текстовий пост" },
+  { channel: "telegram", label: "✈️ Telegram", type: "пост із картинкою" },
+  { channel: "instagram", label: "📸 Instagram", type: "картка 4:5 з дописом" },
+] as const;
+const ORDER_KEY = "content-pack-order";
+const savedOrder = (): string[] => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(ORDER_KEY) ?? "null");
+    if (Array.isArray(saved)) return MATERIALS.map((m) => m.channel).filter((c) => saved.includes(c));
+  } catch {
+    // no saved choice (or storage is blocked) — start with the full pack
+  }
+  return MATERIALS.map((m) => m.channel);
+};
+
+interface Run {
+  request: { channels?: string[] } | null;
+  error: string | null;
+  /** Being written, failed within the last day, or nothing worth showing. */
+  state: "busy" | "failed" | null;
+}
+
+/** The last pack ordered or started, refreshed while the page is open. */
+function usePackRun() {
+  return useQuery({
+    queryKey: ["content-pack-run"],
+    refetchInterval: 30_000,
+    queryFn: async (): Promise<Run | null> => {
+      const { data, error } = await supabase.from("content_runs").select("status, request, error, started_at").eq("kind", "pack").order("started_at", { ascending: false }).limit(1);
+      if (error) throw error;
+      const run = data?.[0];
+      if (!run) return null;
+      const hours = (Date.now() - new Date(run.started_at).getTime()) / 36e5;
+      // A run that died mid-way stays "running" forever; after six hours it no longer blocks a new order.
+      const state = ["requested", "running"].includes(run.status) && hours < 6 ? "busy" : run.status === "failed" && hours < 24 ? "failed" : null;
+      return { request: run.request, error: run.error, state };
+    },
+  }).data;
+}
+
+/** «Згенерувати ідеї»: orders a pack of the ticked materials; the farm writes it and reports in Telegram. */
+function OrderPack() {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [channels, setChannels] = useState<string[]>([]);
+  const [topic, setTopic] = useState("");
+  const busy = usePackRun()?.state === "busy";
+
+  const order = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from("content_runs").insert({ kind: "pack", status: "requested", request: { channels, topic: topic.trim() || undefined } });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      try {
+        localStorage.setItem(ORDER_KEY, JSON.stringify(channels));
+      } catch {
+        // the choice just won't be remembered
+      }
+      setOpen(false);
+      setTopic("");
+      qc.invalidateQueries({ queryKey: ["content-pack-run"] });
+      toast.success("Ферма взялася за ідеї", { description: "Сценарії з'являться тут і прийдуть у Telegram — зазвичай за 10–15 хвилин." });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const toggle = (channel: string, on: boolean) => setChannels((prev) => MATERIALS.map((m) => m.channel as string).filter((c) => (c === channel ? on : prev.includes(c))));
+
+  return (
+    <>
+      <Button
+        disabled={busy}
+        onClick={() => {
+          setChannels(savedOrder());
+          setOpen(true);
+        }}
+      >
+        {busy ? <Loader2 className="animate-spin" /> : <Sparkles />} {busy ? "Ідеї генеруються…" : "Згенерувати ідеї"}
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent title="Що готуємо?" description="Ферма збере тренди й напише сценарії лише для позначеного. Медіа генерується пізніше — після вашого затвердження кожного матеріалу.">
+          <div className="grid gap-3">
+            {MATERIALS.map((m) => (
+              <Checkbox
+                key={m.channel}
+                checked={channels.includes(m.channel)}
+                onChange={(e) => toggle(m.channel, e.target.checked)}
+                label={
+                  <span>
+                    <span className="font-semibold text-ink">{m.label}</span> — {m.type}
+                  </span>
+                }
+              />
+            ))}
+          </div>
+          <Textarea className="mt-5" rows={3} value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="Побажання до ідей (необов'язково). Напр.: щось до Геловіну, більше про сленг" />
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setOpen(false)}>Скасувати</Button>
+            <Button onClick={() => order.mutate()} disabled={!channels.length || order.isPending}>
+              {order.isPending ? <Loader2 className="animate-spin" /> : <Sparkles />} Згенерувати
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+/** The state of the last ordered pack, while it matters: being written, or failed. */
+function PackRunNote() {
+  const run = usePackRun();
+  if (run?.state === "busy") {
+    const names = MATERIALS.filter((m) => run.request?.channels?.includes(m.channel)).map((m) => m.label);
+    return (
+      <Card className="mb-5 flex items-center gap-3 p-4 text-sm text-ink-soft">
+        <Loader2 className="size-5 shrink-0 animate-spin text-seal-500" />
+        <span>
+          Ферма збирає тренди й пише сценарії{names.length ? `: ${names.join(", ")}` : ""}. Зазвичай 10–15 хвилин — вони з&apos;являться тут і прийдуть у Telegram.
+        </span>
+      </Card>
+    );
+  }
+  if (run?.state === "failed") return <Card className="mb-5 p-4 text-sm text-red-600">Останній пакет не зібрано: {run.error ?? "невідома помилка"}. Спробуйте ще раз.</Card>;
+  return null;
+}
+
 /** Items of one pack stay together (in channel order); items without a pack form their own groups. */
 function groupByPack(items: Item[]) {
   const groups: { key: string; packed: boolean; items: Item[] }[] = [];
@@ -113,8 +243,10 @@ function ItemList() {
     <>
       <PageHeader
         title="Контент-ферма"
-        description="Раз на 2 дні ферма готує пакет: історія для TikTok, навчальне відео для Stories, пости Threads, Telegram та Instagram. Відредагуйте й затвердіть — хмара згенерує медіа (до 30 хв)."
+        description="Натисніть «Згенерувати ідеї» й оберіть, що готувати: історію для TikTok, навчальне відео для Stories, пости Threads, Telegram чи Instagram. Відредагуйте й затвердіть сценарії — хмара згенерує медіа (до 30 хв)."
+        actions={<OrderPack />}
       />
+      <PackRunNote />
       <Segmented
         className="mb-5"
         label="Статус"
@@ -125,7 +257,7 @@ function ItemList() {
       {isLoading ? (
         <div className="grid gap-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-24" />)}</div>
       ) : shown.length === 0 ? (
-        <EmptyState title="Тут порожньо" text={tab === "todo" ? "Новий пакет з'являється раз на 2 дні о 09:00." : undefined} emotion="happy" />
+        <EmptyState title="Тут порожньо" text={tab === "todo" ? "Нові сценарії з'являться тут, коли ви натиснете «Згенерувати ідеї»." : undefined} emotion="happy" />
       ) : (
         <div className="grid gap-6">
           {groupByPack(shown).map((group) => (

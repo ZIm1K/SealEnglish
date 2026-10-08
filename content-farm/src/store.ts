@@ -89,6 +89,24 @@ export async function runningPack<T = import("./pack.ts").PackState>(): Promise<
   return data?.[0] ? { id: data[0].id as string, state: data[0].state as T } : null;
 }
 
+/**
+ * Takes the oldest pack the owner ordered in the cabinet (status "requested") for this process;
+ * null when there is none or another process got it first.
+ */
+export async function claimRequestedPack(): Promise<{ id: string; request: unknown } | null> {
+  const sb = supabase();
+  if (!sb) return null;
+  const { data: waiting } = await sb.from("content_runs").select("id").eq("status", "requested").eq("kind", "pack").order("started_at").limit(1);
+  if (!waiting?.[0]) return null;
+  const { data } = await sb
+    .from("content_runs")
+    .update({ status: "running", started_at: new Date().toISOString() })
+    .eq("id", waiting[0].id)
+    .eq("status", "requested")
+    .select("id, request");
+  return data?.[0] ? { id: data[0].id as string, request: data[0].request } : null;
+}
+
 /** Hours since the last pack started (failed runs don't count); null when there was none. */
 export async function hoursSinceLastPack(): Promise<number | null> {
   const sb = supabase();

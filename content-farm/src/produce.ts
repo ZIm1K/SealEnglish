@@ -1,6 +1,6 @@
 // Two-stage production with the owner in the loop:
-//   1) writePack — every 2 days: TikTok story + Stories edu video scripts + Threads/Telegram/Instagram
-//      posts, saved as status "script" in one pack → owner edits/approves in the cabinet
+//   1) writePack — when the owner orders a pack: TikTok story + Stories edu video scripts +
+//      Threads/Telegram/Instagram posts (those of them that were ordered), saved as status "script" in one pack → owner edits/approves in the cabinet
 //      (/app/content/) or asks for a rewrite with a note ("script_rewrite").
 //   2) produceApproved — "approved" items → voices, images, render → storage → status "review".
 import fs from "node:fs";
@@ -18,7 +18,7 @@ import { isTransient } from "./media/retry.ts";
 import { speak, type Speech } from "./media/tts.ts";
 import { notifyAdmins } from "./notify.ts";
 import { jobDir, makeBundle, pickMusic, preparePublic, PUBLIC, renderIgCard, renderVideo } from "./render.ts";
-import type { Channel, Idea, RenderLocation, RenderProps, Script, Speaker, Story, StoryProps } from "./schema.ts";
+import { CHANNELS, POST_CHANNELS, type Channel, type Idea, type InstagramPost, type PostChannel, type PostsBundle, type RenderLocation, type RenderProps, type Script, type Speaker, type Story, type StoryProps, type ThreadsPost } from "./schema.ts";
 import {
   detectScript,
   normalizeScript,
@@ -170,19 +170,30 @@ async function notifyScript(id: string | null, title: string, script: AnyScript,
   });
 }
 
-interface PackIdeas {
+export interface PackIdeas {
   story: StoredIdea | null;
   edu: StoredIdea | null;
   posts: StoredIdea[];
+  /** Networks the posts are written for (one idea each). */
+  postChannels: PostChannel[];
 }
 
-/** Picks the pack's ideas from ranked ideas: best story, best edu idea, then three for the posts. */
-export function pickPackIdeas(ideas: StoredIdea[]): PackIdeas {
-  const story = ideas.find((i) => i.idea.format === "story") ?? null;
-  const edu = ideas.find((i) => i.idea.format !== "story") ?? null;
-  const rest = ideas.filter((i) => i !== story && i !== edu);
-  const posts = [...rest.filter((i) => i.idea.text_post_ok), ...rest.filter((i) => !i.idea.text_post_ok)].slice(0, 3);
-  return { story, edu, posts };
+/** How many ideas a pack of these materials needs: two story candidates for TikTok, one idea for each other material. */
+export function ideasFor(channels: readonly Channel[]) {
+  const stories = channels.includes("tiktok") ? 2 : 0;
+  return { stories, count: Math.max(3, stories + channels.filter((c) => c !== "tiktok").length) };
+}
+
+/** Picks the ordered materials' ideas from ranked ideas: best story, best edu idea, then one per post. */
+export function pickPackIdeas(ideas: StoredIdea[], channels: readonly Channel[] = CHANNELS): PackIdeas {
+  const story = (channels.includes("tiktok") && ideas.find((i) => i.idea.format === "story")) || null;
+  const lesson = (channels.includes("stories") && ideas.find((i) => i.idea.format !== "story")) || null;
+  const postChannels = POST_CHANNELS.filter((c) => channels.includes(c));
+  const rest = ideas.filter((i) => i !== story && i !== lesson);
+  const posts = [...rest.filter((i) => i.idea.text_post_ok), ...rest.filter((i) => !i.idea.text_post_ok)].slice(0, postChannels.length);
+  // The Stories slot is for the edu rubrics (quiz, wrong/right…); a story idea is reformatted if that's all we have.
+  const edu = lesson ?? (channels.includes("stories") && story ? { ...story, idea: { ...story.idea, format: "quiz" as const } } : null);
+  return { story, edu, posts, postChannels };
 }
 
 export async function saveScriptItem(
@@ -214,7 +225,20 @@ export async function saveScriptItem(
   return id;
 }
 
-/** Writes one pack (2 video scripts + 3 posts) and sends the owner one Telegram message with the link. */
+/** Saves the posts a bundle carries, one item per network; returns their labels. `spent` is split between them. */
+export async function savePostItems(s: FarmSettings, packId: string, bundle: Partial<PostsBundle>, spent: number): Promise<string[]> {
+  const channels = POST_CHANNELS.filter((c) => bundle[c]);
+  const share = new Budget(Infinity);
+  share.add("posts_share", spent / Math.max(1, channels.length));
+  const titleOf = (text: string) => text.split("\n")[0].replace(/[*_#]/g, "").slice(0, 80) || "Пост";
+  for (const c of channels) {
+    const title = c === "instagram" ? (bundle[c] as InstagramPost).image_headline : titleOf((bundle[c] as ThreadsPost).text);
+    await saveScriptItem(s, packId, c, title, null, { channel: c, ...bundle[c] }, share, "text");
+  }
+  return channels.map((c) => CHANNEL_LABEL[c]);
+}
+
+/** Writes one pack (the ordered video scripts and posts) and sends the owner one Telegram message with the link. */
 export async function writePack(s: FarmSettings, ideas: PackIdeas, log: Log, warnings: string[] = []): Promise<number> {
   const packId = randomUUID();
   const made: string[] = [];
@@ -222,7 +246,7 @@ export async function writePack(s: FarmSettings, ideas: PackIdeas, log: Log, war
   let total = 0;
 
   const video = async (channel: "tiktok" | "stories", stored: StoredIdea | null) => {
-    if (!stored) return log(`  ⚠ немає ідеї для ${CHANNEL_LABEL[channel]}`);
+    if (!stored) return;
     const budget = new Budget(s.max_usd_per_video);
     try {
       log(`▶ ${CHANNEL_LABEL[channel]}: ${stored.idea.title}`);
@@ -239,22 +263,15 @@ export async function writePack(s: FarmSettings, ideas: PackIdeas, log: Log, war
     total += budget.spent;
   };
   await video("tiktok", ideas.story);
-  // The Stories slot is for the edu rubrics (quiz, wrong/right…); a story idea is reformatted if that's all we have.
-  await video("stories", ideas.edu ? ideas.edu : ideas.story && { ...ideas.story, idea: { ...ideas.story.idea, format: "quiz" } });
+  await video("stories", ideas.edu);
 
   if (ideas.posts.length) {
     const budget = new Budget(s.max_usd_per_text * 3);
     try {
-      log(`▶ пости Threads / Telegram / Instagram`);
-      const bundle = await writePostsBundle(s, budget, ideas.posts.map((p) => p.idea));
-      const share = new Budget(Infinity);
-      share.add("posts_share", budget.spent / 3);
-      const titleOf = (text: string) => text.split("\n")[0].replace(/[*_#]/g, "").slice(0, 80) || "Пост";
-      await saveScriptItem(s, packId, "threads", titleOf(bundle.threads.text), null, { channel: "threads", ...bundle.threads }, share, "text");
-      await saveScriptItem(s, packId, "telegram", titleOf(bundle.telegram.text), null, { channel: "telegram", ...bundle.telegram }, share, "text");
-      await saveScriptItem(s, packId, "instagram", bundle.instagram.image_headline, null, { channel: "instagram", ...bundle.instagram }, share, "text");
+      log(`▶ пости: ${ideas.postChannels.map((c) => CHANNEL_LABEL[c]).join(" / ")}`);
+      const bundle = await writePostsBundle(s, budget, ideas.posts.map((p) => p.idea), ideas.postChannels);
+      made.push(...(await savePostItems(s, packId, bundle, budget.spent)));
       for (const p of ideas.posts) await markIdea(p.id, "used");
-      made.push(CHANNEL_LABEL.threads, CHANNEL_LABEL.telegram, CHANNEL_LABEL.instagram);
     } catch (e) {
       log(`  ✖ пости: ${(e as Error).message}`);
     }

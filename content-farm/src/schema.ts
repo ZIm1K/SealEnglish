@@ -203,6 +203,21 @@ export interface StoryProps {
 // ---- Channel posts (one pack = TikTok story + Stories edu video + these three) ----
 export const CHANNELS = ["tiktok", "stories", "threads", "telegram", "instagram"] as const;
 export type Channel = (typeof CHANNELS)[number];
+export const POST_CHANNELS = ["threads", "telegram", "instagram"] as const;
+export type PostChannel = (typeof POST_CHANNELS)[number];
+
+/** What the owner ordered in the cabinet («Згенерувати ідеї»): which materials to write, and a wish for the ideas. */
+export interface PackOrder {
+  channels: Channel[];
+  topic?: string;
+}
+/** Reads an order as it was saved (content_runs.request) or typed (--channels a,b); nothing valid means the full pack. */
+export function packOrder(raw: { channels?: unknown; topic?: unknown } | null | undefined): PackOrder {
+  const asked = Array.isArray(raw?.channels) ? raw.channels : String(raw?.channels ?? "").split(",");
+  const channels = CHANNELS.filter((c) => asked.includes(c));
+  const topic = typeof raw?.topic === "string" ? raw.topic.trim() : "";
+  return { channels: channels.length ? channels : [...CHANNELS], ...(topic ? { topic } : {}) };
+}
 
 export const ThreadsPostSchema = z.object({
   text: z.string().describe("Пост Threads: лише текст, до 450 символів, розмовно, з питанням або «гачком» для відповідей"),

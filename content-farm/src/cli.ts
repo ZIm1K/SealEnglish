@@ -1,12 +1,13 @@
 // Entry point: `npm run farm -- <command> [--flags]`.
 import path from "node:path";
 import { DEMO_PROPS } from "../remotion/demo.ts";
-import { ROOT, saveSetting, settings, supabase } from "./env.ts";
+import { ROOT, saveSetting, settings, supabase, type FarmSettings } from "./env.ts";
 import { Budget } from "./llm.ts";
 import { ideate, NO_SCAN, scanTrends } from "./plan.ts";
-import { pickPackIdeas, produceApproved, rewriteRequested, writePack, writeScripts } from "./produce.ts";
+import { ideasFor, pickPackIdeas, produceApproved, rewriteRequested, writePack, writeScripts } from "./produce.ts";
 import { makeBundle, preparePublic, renderVideo } from "./render.ts";
-import { finishRun, freshIdeas, hoursSinceLastPack, recentTitles, saveIdeas, startRun } from "./store.ts";
+import { packOrder, type PackOrder } from "./schema.ts";
+import { claimRequestedPack, finishRun, freshIdeas, hoursSinceLastPack, recentTitles, saveIdeas, startRun } from "./store.ts";
 
 const [, , command = "help", ...rest] = process.argv;
 const flags: Record<string, string> = {};
@@ -25,6 +26,54 @@ const log = (m: string) => {
   console.log(m);
 };
 
+/**
+ * Trends → ideas → scripts for approval. `pack` writes the materials of `order` (started by hand or
+ * by an order from the cabinet), `custom` one video script on the topic, `scan` ideas only.
+ */
+async function ideasRun(s: FarmSettings, kind: string, runId: string | null, order: PackOrder) {
+  const pack = kind === "pack" || kind === "daily";
+  const budget = new Budget(Infinity);
+  try {
+    const scan = kind === "custom" && !flags.trends ? NO_SCAN : await scanTrends(s, budget, log);
+    const wanted = ideasFor(order.channels);
+    const count = kind === "custom" ? num("count", 1) : num("ideas", pack ? wanted.count : 6);
+    const stories = kind === "custom" ? (flags.format === "edu" ? 0 : count) : pack ? wanted.stories : 2;
+    const warnings = [...scan.warnings];
+    // A pack's two videos voice ≈ 2 500 characters; warn while there is still time to top up,
+    // because without the voice the videos won't be produced at all.
+    if (kind !== "scan" && s.tts_provider === "eleven" && (!pack || order.channels.some((c) => c === "tiktok" || c === "stories"))) {
+      const { elevenCharactersLeft } = await import("./media/eleven.ts");
+      const left = await elevenCharactersLeft();
+      if (left !== null && left < 5000) warnings.push(`ElevenLabs: лишилось ${left} символів — цього не вистачить на два пакети, поповніть до затвердження відео`);
+    }
+    const input = { scan, recentTitles: await recentTitles(), count, stories, topic: order.topic };
+
+    // A pack's texts go through the Batches API at half price (src/pack.ts); the run is finished
+    // by this process or by a later `work` run.
+    if (pack && s.pack_batch && runId && flags.live !== "true") {
+      const { startBatchPack } = await import("./pack.ts");
+      await startBatchPack(s, runId, input, order.channels, warnings, budget.spent, lines, log);
+      return;
+    }
+
+    log(`Аналіз трендів і генерація ${count} ідей (історій: ${stories})…`);
+    const ideas = await ideate({ s, budget, ...input });
+    const stored = await saveIdeas(runId, ideas);
+    for (const [i, { idea }] of stored.entries()) log(`  ${i + 1}. [${idea.format}] ${idea.title} — ${idea.trend}`);
+    log(`Аналіз коштував $${budget.spent.toFixed(3)}`);
+
+    // Scripts only — media is produced after the owner approves them in the cabinet (`work`).
+    let made = 0;
+    if (kind === "custom") made = await writeScripts(s, stored.slice(0, 1), log, warnings);
+    else if (kind !== "scan") made = await writePack(s, pickPackIdeas(stored, order.channels), log, warnings);
+    await finishRun(runId, { status: "done", cost_usd: budget.spent, log: lines.join(LF), signals: scan.signals, web_report: [scan.web_report, scan.story_report].filter(Boolean).join(STORY_SEP) });
+    log(`Готово. На затвердження: ${made}`);
+  } catch (e) {
+    await finishRun(runId, { status: "failed", cost_usd: budget.spent, log: lines.join(LF), error: String(e) });
+    throw e;
+  }
+}
+
 async function main() {
   const s = await settings();
   if (flags.model) s.model = flags.model;
@@ -42,57 +91,18 @@ async function main() {
     case "pack":
     case "daily":
     case "custom": {
-      // pack (alias daily): trends → ideas → one pack (TikTok story, Stories edu, Threads, Telegram, Instagram).
-      // custom: one video script on --topic (--format story|edu). scan: ideas only.
+      // pack (alias daily): trends → ideas → one pack (TikTok story, Stories edu, Threads, Telegram, Instagram;
+      // --channels narrows it). custom: one video script on --topic (--format story|edu). scan: ideas only.
       if ((command === "pack" || command === "daily") && flags.force !== "true") {
-        // The scheduler wakes the job every morning; packs are 48 hours apart whatever the calendar
-        // says (a cron "every 2nd day of the month" fires on the 31st and again on the 1st).
+        // For the morning schedule (seal-farm-pack, paused since packs are ordered from the cabinet):
+        // woken daily, packs stay 48 hours apart whatever the calendar says (a cron "every 2nd day of
+        // the month" fires on the 31st and again on the 1st).
         const hours = await hoursSinceLastPack();
         // 30 h, not 47: with a daily wake-up any threshold between 24 and 48 gives the 48-hour rhythm,
         // and this one also survives a pack that was started by hand later in the day.
         if (hours !== null && hours < 30) return log(`Пропускаю: останній пакет був ${hours.toFixed(0)} год тому (пакети виходять через день). Запустити все одно: --force`);
       }
-      const runId = await startRun(command);
-      const budget = new Budget(Infinity);
-      try {
-        const scan =
-          command === "custom" && !flags.trends ? NO_SCAN : await scanTrends(s, budget, log);
-        const count = command === "custom" ? num("count", 1) : num("ideas", 6);
-        const stories = command === "custom" ? (flags.format === "edu" ? 0 : count) : 2;
-        const warnings = [...scan.warnings];
-        // A pack's two videos voice ≈ 2 500 characters; warn while there is still time to top up,
-        // because without the voice the videos won't be produced at all.
-        if (command !== "scan" && s.tts_provider === "eleven") {
-          const { elevenCharactersLeft } = await import("./media/eleven.ts");
-          const left = await elevenCharactersLeft();
-          if (left !== null && left < 5000) warnings.push(`ElevenLabs: лишилось ${left} символів — цього не вистачить на два пакети, поповніть до затвердження відео`);
-        }
-        const input = { scan, recentTitles: await recentTitles(), count, stories, topic: flags.topic };
-
-        // Nobody waits for the morning pack, so its texts go through the Batches API at half price
-        // (src/pack.ts); the run is finished by this process or by a later `work` run.
-        if ((command === "pack" || command === "daily") && s.pack_batch && runId && flags.live !== "true") {
-          const { startBatchPack } = await import("./pack.ts");
-          await startBatchPack(s, runId, input, warnings, budget.spent, lines, log);
-          return;
-        }
-
-        log(`Аналіз трендів і генерація ${count} ідей (історій: ${stories})…`);
-        const ideas = await ideate({ s, budget, ...input });
-        const stored = await saveIdeas(runId, ideas);
-        for (const [i, { idea }] of stored.entries()) log(`  ${i + 1}. [${idea.format}] ${idea.title} — ${idea.trend}`);
-        log(`Аналіз коштував $${budget.spent.toFixed(3)}`);
-
-        // Scripts only — media is produced after the owner approves them in the cabinet (`work`).
-        let made = 0;
-        if (command === "custom") made = await writeScripts(s, stored.slice(0, 1), log, warnings);
-        else if (command !== "scan") made = await writePack(s, pickPackIdeas(stored), log, warnings);
-        await finishRun(runId, { status: "done", cost_usd: budget.spent, log: lines.join(LF), signals: scan.signals, web_report: [scan.web_report, scan.story_report].filter(Boolean).join(STORY_SEP) });
-        log(`Готово. На затвердження: ${made}`);
-      } catch (e) {
-        await finishRun(runId, { status: "failed", cost_usd: budget.spent, log: lines.join(LF), error: String(e) });
-        throw e;
-      }
+      await ideasRun(s, command, await startRun(command), packOrder({ channels: flags.channels, topic: flags.topic }));
       return;
     }
 
@@ -219,8 +229,10 @@ async function main() {
     }
 
     case "work": {
-      // Frequent, cheap when idle: move a pack that waits on a batch, rewrite scripts the owner
-      // commented on, produce approved ones.
+      // Frequent, cheap when idle: write the pack the owner ordered in the cabinet («Згенерувати ідеї»),
+      // move a pack that waits on a batch, rewrite scripts the owner commented on, produce approved ones.
+      const ordered = await claimRequestedPack();
+      if (ordered) await ideasRun(s, "pack", ordered.id, packOrder(ordered.request as Parameters<typeof packOrder>[0])).catch((e) => log(`  ✖ замовлений пакет: ${(e as Error).message}`));
       const { advancePack } = await import("./pack.ts");
       await advancePack(s, log).catch((e) => log(`  ✖ пакет: ${(e as Error).message}`));
       const rewritten = await rewriteRequested(s, log);
@@ -232,8 +244,9 @@ async function main() {
     default:
       console.log(`Seal English — контент-ферма
 
-  npm run farm -- pack [--force] [--live] [--topic "…"]
+  npm run farm -- pack [--force] [--live] [--topic "…"] [--channels tiktok,stories,threads,telegram,instagram]
       зріз трендів → ідеї → пакет сценаріїв на затвердження (кабінет → «Контент-ферма»)
+      зазвичай пакет замовляється кнопкою «Згенерувати ідеї» в кабінеті — його пише найближчий work
       --force — не чекати 48 год від попереднього пакета; --live — без Batch API (одразу, повна ціна)
   npm run farm -- scan [--ideas 10]          лише тренди та ідеї (збережуться в базі)
   npm run farm -- produce [--videos 1]       сценарії зі свіжих збережених ідей

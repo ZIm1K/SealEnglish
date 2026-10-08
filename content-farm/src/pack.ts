@@ -1,5 +1,5 @@
 // A pack written through the Message Batches API. The texts are the same calls `writePack` makes
-// live, but nobody is waiting at 6 a.m., so they go in three batches at half price:
+// live, but a pack is not needed this very minute, so they go in three batches at half price:
 //   ideas → drafts (story, edu script, posts) → edits (the humanizer pass) → save + notify.
 // A batch is answered asynchronously, so the pack is a small state machine kept in
 // content_runs.state: a run polls for a few minutes and, if the batch isn't done, leaves the rest to
@@ -10,9 +10,9 @@ import { humanizeCall } from "./humanize.ts";
 import { Budget, cancelBatch, collectBatch, structured, submitBatch, type StructuredCall } from "./llm.ts";
 import { notifyAdmins } from "./notify.ts";
 import { ideateCall, rankIdeas, type IdeateInput } from "./plan.ts";
-import { CHANNEL_LABEL, pickPackIdeas, saveScriptItem, warningLines } from "./produce.ts";
-import { PostsBundleSchema, type Idea, type PostsBundle, type Script, type Story } from "./schema.ts";
-import { normalizeScript, normalizeStory, postsCall, scriptCall, scriptSchema, storyCall, storySchema, withCrossPosts } from "./script.ts";
+import { CHANNEL_LABEL, pickPackIdeas, savePostItems, saveScriptItem, warningLines, type PackIdeas } from "./produce.ts";
+import { CHANNELS, POST_CHANNELS, type Channel, type Idea, type PostsBundle, type Script, type Story } from "./schema.ts";
+import { normalizeScript, normalizeStory, postsCall, postsSchema, scriptCall, scriptSchema, storyCall, storySchema, withCrossPosts } from "./script.ts";
 import { claimRun, finishRun, markIdea, releaseRun, runningPack, saveIdeas, saveRunState, siteUrl, type StoredIdea } from "./store.ts";
 
 type Log = (m: string) => void;
@@ -24,6 +24,8 @@ export interface PackState {
   batch_id: string;
   stage_started_at: string;
   input: IdeateInput;
+  /** The materials the owner ordered; packs started before orders existed have none and mean all five. */
+  channels?: Channel[];
   warnings: string[];
   notes: string[];
   log: string[];
@@ -31,7 +33,7 @@ export interface PackState {
   scan_cost: number;
   /** Cost lines per call key (ideate, story, humanize_story, …), gathered as the batches come back. */
   lines: Record<string, Lines>;
-  picks?: { story: StoredIdea | null; edu: StoredIdea | null; posts: StoredIdea[] };
+  picks?: Omit<PackIdeas, "postChannels"> & { postChannels?: PackIdeas["postChannels"] };
   drafts?: { story?: unknown; script?: unknown; posts?: unknown };
 }
 
@@ -42,12 +44,12 @@ function stageCalls(s: FarmSettings, st: PackState): Record<string, StructuredCa
   if (st.stage === "drafts") {
     if (st.picks?.story) calls.story = storyCall(s, st.picks.story.idea);
     if (st.picks?.edu) calls.script = scriptCall(s, st.picks.edu.idea);
-    if (st.picks?.posts.length) calls.posts = postsCall(st.picks.posts.map((p) => p.idea));
+    if (st.picks?.posts.length) calls.posts = postsCall(st.picks.posts.map((p) => p.idea), st.picks.postChannels);
     return calls;
   }
   if (st.drafts?.story) calls.humanize_story = humanizeCall(storySchema(s), st.drafts.story as never, "story");
   if (st.drafts?.script) calls.humanize_script = humanizeCall(scriptSchema(s), st.drafts.script as never, "script");
-  if (st.drafts?.posts) calls.humanize_posts = humanizeCall(PostsBundleSchema, st.drafts.posts as never, "posts");
+  if (st.drafts?.posts) calls.humanize_posts = humanizeCall(postsSchema(st.picks?.postChannels), st.drafts.posts as never, "posts");
   return calls;
 }
 
@@ -57,7 +59,7 @@ const budgetOf = (limit: number, ...lines: (Lines | undefined)[]) => {
   return b;
 };
 
-/** Saves the pack's five items and tells the owner — the same result `writePack` produces live. */
+/** Saves the pack's items and tells the owner — the same result `writePack` produces live. */
 async function finish(s: FarmSettings, runId: string, st: PackState, final: { story?: unknown; script?: unknown; posts?: unknown }, say: Log) {
   const made: string[] = [];
   if (final.story && st.picks?.story) {
@@ -75,15 +77,8 @@ async function finish(s: FarmSettings, runId: string, st: PackState, final: { st
     made.push(CHANNEL_LABEL.stories);
   }
   if (final.posts && st.picks?.posts.length) {
-    const bundle = final.posts as PostsBundle;
-    const share = new Budget(Infinity);
-    share.add("posts_share", budgetOf(Infinity, st.lines.posts, st.lines.humanize_posts).spent / 3);
-    const titleOf = (text: string) => text.split("\n")[0].replace(/[*_#]/g, "").slice(0, 80) || "Пост";
-    await saveScriptItem(s, st.pack_id, "threads", titleOf(bundle.threads.text), null, { channel: "threads", ...bundle.threads }, share, "text");
-    await saveScriptItem(s, st.pack_id, "telegram", titleOf(bundle.telegram.text), null, { channel: "telegram", ...bundle.telegram }, share, "text");
-    await saveScriptItem(s, st.pack_id, "instagram", bundle.instagram.image_headline, null, { channel: "instagram", ...bundle.instagram }, share, "text");
+    made.push(...(await savePostItems(s, st.pack_id, final.posts as Partial<PostsBundle>, budgetOf(Infinity, st.lines.posts, st.lines.humanize_posts).spent)));
     for (const p of st.picks.posts) await markIdea(p.id, "used");
-    made.push(CHANNEL_LABEL.threads, CHANNEL_LABEL.telegram, CHANNEL_LABEL.instagram);
   }
   const total = st.scan_cost + Object.values(st.lines).flat().reduce((a, l) => a + l.usd, 0);
   if (made.length) {
@@ -143,9 +138,7 @@ async function advance(s: FarmSettings, runId: string, st: PackState, log: Log):
       if (got.ideate instanceof Error) throw got.ideate;
       const stored = await saveIdeas(runId, rankIdeas((got.ideate as { ideas: Idea[] }).ideas));
       for (const [i, { idea }] of stored.entries()) say(`  ${i + 1}. [${idea.format}] ${idea.title} — ${idea.trend}`);
-      const picks = pickPackIdeas(stored);
-      // The Stories slot is for the edu rubrics; a story idea is reformatted if that's all we have.
-      st.picks = { story: picks.story, edu: picks.edu ?? (picks.story && { ...picks.story, idea: { ...picks.story.idea, format: "quiz" } }), posts: picks.posts };
+      st.picks = pickPackIdeas(stored, st.channels ?? CHANNELS);
       st.stage = "drafts";
     } else if (st.stage === "drafts") {
       st.drafts = {};
@@ -196,13 +189,14 @@ async function run(s: FarmSettings, runId: string, st: PackState, log: Log) {
 }
 
 /** Starts a pack after the trend scan: submits the ideas batch and goes as far as it can in this run. */
-export async function startBatchPack(s: FarmSettings, runId: string, input: IdeateInput, warnings: string[], scanCost: number, logLines: string[], log: Log) {
+export async function startBatchPack(s: FarmSettings, runId: string, input: IdeateInput, channels: Channel[], warnings: string[], scanCost: number, logLines: string[], log: Log) {
   const st: PackState = {
     pack_id: randomUUID(),
     stage: "ideas",
     batch_id: "",
     stage_started_at: new Date().toISOString(),
     input,
+    channels,
     warnings,
     notes: [],
     log: [...logLines],

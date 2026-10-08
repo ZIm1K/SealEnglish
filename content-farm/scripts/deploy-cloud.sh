@@ -56,9 +56,16 @@ schedule() { # name, cron, body
 }
 # Pack: the job wakes at 06:00 Kyiv every day and skips when the last pack is under 30 h old
 # (src/cli.ts), so packs are a true 48 hours apart and ready by the morning.
+# Detached: packs are ordered in the cabinet («Згенерувати ідеї»), so the schedule is kept paused.
+# AUTO_PACK=1 bash content-farm/scripts/deploy-cloud.sh turns the every-other-morning pack back on.
 schedule seal-farm-pack "0 6 * * *" '{"overrides":{"containerOverrides":[{"args":["pack"]}]}}'
-# Work: an approval starts the job at once (farm-kick Edge Function); this tick is the safety net
-# and what retries items after a provider outage. Idle runs exit in seconds.
+if [ "${AUTO_PACK:-0}" = "1" ]; then
+  gcloud scheduler jobs resume seal-farm-pack --location "$REGION" --quiet >/dev/null 2>&1 || true
+else
+  gcloud scheduler jobs pause seal-farm-pack --location "$REGION" --quiet >/dev/null 2>&1 || true
+fi
+# Work: an approval or a pack order starts the job at once (farm-kick Edge Function); this tick is
+# the safety net and what retries items after a provider outage. Idle runs exit in seconds.
 schedule seal-farm-work "0 6-23 * * *" '{}'
 # Backup: every Monday night the school's tables are exported to Google Drive (src/backup.ts).
 schedule seal-farm-backup "0 4 * * 1" '{"overrides":{"containerOverrides":[{"args":["backup"]}]}}'

@@ -9,9 +9,15 @@
 
 ## 1. Що це
 
-Конвеєр, який через день готує **пакет із 5 матеріалів** (TikTok-історія, навчальне відео для
-Stories, пости для Threads, Telegram та Instagram), чекає на затвердження власника в кабінеті,
-а потім виробляє медіа й надсилає результат у Telegram.
+Конвеєр, який на замовлення власника (кнопка «Згенерувати ідеї» в кабінеті, з вибором мереж) готує
+**пакет до 5 матеріалів** (TikTok-історія, навчальне відео для Stories, пости для Threads, Telegram та
+Instagram), чекає на затвердження в кабінеті, а потім виробляє медіа й надсилає результат у Telegram.
+
+> З 8 жовтня 2026 автозапуск пакета через день від'єднано: розклад `seal-farm-pack` стоїть на паузі,
+> логіка ритму (30 год) лишилась у коді. Замовлення з кабінету — рядок `content_runs` зі статусом
+> `requested` і полем `request` (`channels`, `topic`); тригер бази будить job через `farm-kick`, а `work`
+> забирає замовлення (`claimRequestedPack`) і пише пакет лише для обраних каналів. Повернути автозапуск:
+> `AUTO_PACK=1 bash content-farm/scripts/deploy-cloud.sh`.
 
 ```
 Cloud Scheduler ─────────▶ Cloud Run Job «seal-farm» ─────▶ Supabase: таблиці, кеш, обкладинки
@@ -27,7 +33,7 @@ Cloud Scheduler ─────────▶ Cloud Run Job «seal-farm» ─�
 | Складова | Де | Що робить |
 |---|---|---|
 | Cloud Run Job `seal-farm` | Google Cloud, проєкт `bond-bot-494410`, `europe-west1`, 2 vCPU / 4 ГБ, тайм-аут 60 хв | Контейнер з фермою ([Dockerfile](Dockerfile)); команда за замовчуванням — `work` |
-| Scheduler `seal-farm-pack` | `0 6 * * *`, Europe/Kyiv | Будить job з аргументом `pack`; сама ферма пропускає запуск, якщо останній пакет молодший за 30 годин — виходить ритм «через день» |
+| Scheduler `seal-farm-pack` | `0 6 * * *`, Europe/Kyiv, **на паузі** | Будить job з аргументом `pack`; сама ферма пропускає запуск, якщо останній пакет молодший за 30 годин — виходить ритм «через день» |
 | Scheduler `seal-farm-work` | `*/30 6-23 * * *` | `work`: рухає пакет, що чекає на batch, переписує, виробляє, повторює після збоїв |
 | Scheduler `seal-farm-backup` | `0 4 * * 1` | `backup`: копія таблиць на Google Drive |
 | Edge Function `farm-kick` | Supabase | Запускає job одразу після затвердження (викликається тригером бази) |
@@ -125,7 +131,7 @@ script ──затвердити──▶ approved ──▶ rendering ──�
 
 | Команда | Що робить |
 |---|---|
-| `npm run farm -- pack [--force] [--live]` | пакет; `--force` — не зважати на ритм, `--live` — без Batch API |
+| `npm run farm -- pack [--force] [--live] [--channels a,b]` | пакет; `--force` — не зважати на ритм, `--live` — без Batch API, `--channels` — лише ці канали |
 | `npm run farm -- custom --topic "…" [--format story\|edu] [--trends]` | один сценарій на тему |
 | `npm run farm -- scan` / `produce` | лише ідеї / пакет зі збережених свіжих ідей |
 | `npm run farm -- work` | рушити пакет, переписати, виробити затверджене |
