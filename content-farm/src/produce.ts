@@ -13,7 +13,7 @@ import { buildRenderProps, buildStoryProps, type BeatMedia, type SceneAudio } fr
 import { Budget } from "./llm.ts";
 import { canDraw, drawFrame, frameCost, type FrameRequest } from "./media/images.ts";
 import { mentionsSeal } from "./media/gemini.ts";
-import { locateHead } from "./media/locate.ts";
+import { headsPending, locateHead } from "./media/locate.ts";
 import { isTransient } from "./media/retry.ts";
 import { speak, type Speech } from "./media/tts.ts";
 import { notifyAdmins } from "./notify.ts";
@@ -420,6 +420,10 @@ async function storyMedia(s: FarmSettings, budget: Budget, story: Story, dir: st
       `Не вдалося згенерувати фони локацій (${imageError || "генератор недоступний"}). Затвердіть ще раз: голоси й готові фони вже збережено, повтор коштує лише відсутні фони.`,
     );
   }
+  if (headsPending.length) {
+    const list = headsPending.splice(0).map((h) => `${h.file} ${h.side} — ${h.description}`);
+    throw new HeadsPending(`Потрібні позиції голів (локальний режим):\n${list.join("\n")}`);
+  }
   return buildStoryProps(story, media, images, pickMusic(story.music_mood), 30, heads);
 }
 
@@ -565,6 +569,9 @@ export async function produceById(s: FarmSettings, ids: string[], log: Log): Pro
   return made;
 }
 
+/** Local mode stops before the render until the heads are stored; the item goes back untouched. */
+class HeadsPending extends Error {}
+
 async function produceItem(s: FarmSettings, item: ItemRow, from: string, log: Log): Promise<boolean> {
   if (!(await claimItem(item.id, from, "rendering"))) return false;
   try {
@@ -572,6 +579,11 @@ async function produceItem(s: FarmSettings, item: ItemRow, from: string, log: Lo
     else await produceVideoItem(s, item, log);
     return true;
   } catch (e) {
+    if (e instanceof HeadsPending) {
+      log(e.message);
+      await updateItem(item.id, { status: from });
+      return false;
+    }
     const reason = (e as Error).message.slice(0, 500);
     const attempt = (item.attempts ?? 0) + 1;
     // The in-run retries cover a minute or two; an outage that outlasts them is waited out
@@ -586,8 +598,7 @@ async function produceItem(s: FarmSettings, item: ItemRow, from: string, log: Lo
     // An approved item that silently never arrives looks like a hung farm — say what happened.
     await notifyAdmins({
       title: item.title,
-      summary: `❌ Не вдалося виробити: ${reason}
-Відкрити: ${await siteUrl()}/app/content/?id=${item.id}`,
+      summary: `❌ Не вдалося виробити: ${reason}\nВідкрити: ${await siteUrl()}/app/content/?id=${item.id}`,
       details: "",
     }).catch(() => undefined);
     return false;

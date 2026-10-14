@@ -15,11 +15,24 @@ const HeadSchema = z.object({
 });
 export type Head = z.infer<typeof HeadSchema>;
 
+/** Backgrounds whose head nobody located yet (local mode); the run stops before the render. */
+export const headsPending: { file: string; side: string; description: string }[] = [];
+
+/** Stores a head position read off the picture by hand (`farm head <file> <side> <x> <y> <top> <size>`, or `none`). */
+export async function saveHead(imageFile: string, side: string, head: Head) {
+  await cachePutJson(cacheKey("head", fileHash(imageFile), side), head);
+}
+
 export async function locateHead(s: FarmSettings, budget: Budget, imageFile: string, description: string, side: string): Promise<Head | null> {
   // Keyed by the picture itself: a cached background keeps its cached head position.
   const key = cacheKey("head", fileHash(imageFile), side);
   const cached = await cacheGetJson<Head>(key);
   if (cached) return cached.found ? cached : null;
+  // Local mode: Claude in chat looks at the picture and stores the head with `farm head` instead.
+  if (process.env.FARM_NO_LLM === "1") {
+    headsPending.push({ file: imageFile, side, description });
+    return null;
+  }
   try {
     const head = await structured({
       s,

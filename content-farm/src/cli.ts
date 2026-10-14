@@ -237,6 +237,15 @@ async function main() {
       return;
     }
 
+    case "head": {
+      // Head of the talking background character, read off the picture in chat: <file> <side> <x> <y> <top> <size> | <file> <side> none
+      const [file, side, ...v] = rest.filter((a) => !a.startsWith("--"));
+      const { saveHead } = await import("./media/locate.ts");
+      const [x, y, top, size] = v.map(Number);
+      await saveHead(file, side, v[0] === "none" ? { found: false, x: 0, y: 0, top: 0, size: 0 } : { found: true, x, y, top, size });
+      return log(`Голову збережено: ${file} (${side})`);
+    }
+
     case "work": {
       // Frequent, cheap when idle: write the pack the owner ordered in the cabinet («Згенерувати ідеї»),
       // move a pack that waits on a batch, rewrite scripts the owner commented on, produce approved ones.
