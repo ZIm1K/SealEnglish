@@ -4,7 +4,7 @@ import { DEMO_PROPS } from "../remotion/demo.ts";
 import { ROOT, saveSetting, settings, supabase, type FarmSettings } from "./env.ts";
 import { Budget } from "./llm.ts";
 import { ideate, NO_SCAN, scanTrends } from "./plan.ts";
-import { ideasFor, pickPackIdeas, produceApproved, rewriteRequested, writePack, writeScripts } from "./produce.ts";
+import { ideasFor, pickPackIdeas, produceApproved, produceById, rewriteRequested, writePack, writeScripts } from "./produce.ts";
 import { makeBundle, preparePublic, renderVideo } from "./render.ts";
 import { packOrder, type PackOrder } from "./schema.ts";
 import { claimRequestedPack, finishRun, freshIdeas, hoursSinceLastPack, recentTitles, saveIdeas, startRun } from "./store.ts";
@@ -225,6 +225,15 @@ async function main() {
       const ideas = await freshIdeas(8);
       if (!ideas.length) return log("Немає свіжих ідей — запустіть `scan` або `pack`.");
       log(`Готово. На затвердження: ${await writePack(s, pickPackIdeas(ideas), log)}`);
+      return;
+    }
+
+    case "local": {
+      // Production on this PC: only ElevenLabs voices and Gemini pictures are paid, Claude API is off.
+      const ids = rest.filter((a) => !a.startsWith("--"));
+      if (!ids.length) return log("Вкажіть id матеріалів: npm run local -- <id> [<id>…]");
+      process.env.FARM_NO_LLM = "1";
+      log(`Вироблено локально: ${await produceById(s, ids, log)} з ${ids.length}`);
       return;
     }
 

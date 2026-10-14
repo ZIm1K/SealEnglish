@@ -551,31 +551,45 @@ export async function produceApproved(s: FarmSettings, log: Log): Promise<number
   if (!items.length) return 0;
   preparePublic();
   let made = 0;
-  for (const item of items) {
-    if (!(await claimItem(item.id, "approved", "rendering"))) continue;
-    try {
-      if (item.kind === "text") await producePostItem(s, item, log);
-      else await produceVideoItem(s, item, log);
-      made++;
-    } catch (e) {
-      const reason = (e as Error).message.slice(0, 500);
-      const attempt = (item.attempts ?? 0) + 1;
-      // The in-run retries cover a minute or two; an outage that outlasts them is waited out
-      // across runs: the item goes back to the queue, and the asset cache keeps what is done.
-      if (isTransient(e) && attempt < s.production_attempts) {
-        log(`  ↻ ${item.title}: спроба ${attempt} з ${s.production_attempts} не вдалася — повторю на наступному запуску (${reason.slice(0, 160)})`);
-        await updateItem(item.id, { status: "approved", attempts: attempt, review_note: `Спроба ${attempt} з ${s.production_attempts} не вдалася, повторю автоматично: ${reason}` });
-        continue;
-      }
-      log(`  ✖ ${item.title}: ${reason}`);
-      await updateItem(item.id, { status: "failed", attempts: attempt, review_note: `Помилка виробництва: ${reason}` });
-      // An approved item that silently never arrives looks like a hung farm — say what happened.
-      await notifyAdmins({
-        title: item.title,
-        summary: `❌ Не вдалося виробити: ${reason}\nВідкрити: ${await siteUrl()}/app/content/?id=${item.id}`,
-        details: "",
-      }).catch(() => undefined);
-    }
-  }
+  for (const item of items) if (await produceItem(s, item, "approved", log)) made++;
   return made;
+}
+
+/** Produces the given items on this machine (`farm local`), straight from `script` or `approved`. */
+export async function produceById(s: FarmSettings, ids: string[], log: Log): Promise<number> {
+  const items = (await itemsWithStatus(["script", "approved"], 50)).filter((i) => ids.includes(i.id));
+  if (!items.length) return 0;
+  preparePublic();
+  let made = 0;
+  for (const item of items) if (await produceItem(s, item, item.status, log)) made++;
+  return made;
+}
+
+async function produceItem(s: FarmSettings, item: ItemRow, from: string, log: Log): Promise<boolean> {
+  if (!(await claimItem(item.id, from, "rendering"))) return false;
+  try {
+    if (item.kind === "text") await producePostItem(s, item, log);
+    else await produceVideoItem(s, item, log);
+    return true;
+  } catch (e) {
+    const reason = (e as Error).message.slice(0, 500);
+    const attempt = (item.attempts ?? 0) + 1;
+    // The in-run retries cover a minute or two; an outage that outlasts them is waited out
+    // across runs: the item goes back to the queue, and the asset cache keeps what is done.
+    if (isTransient(e) && attempt < s.production_attempts) {
+      log(`  ↻ ${item.title}: спроба ${attempt} з ${s.production_attempts} не вдалася — повторю на наступному запуску (${reason.slice(0, 160)})`);
+      await updateItem(item.id, { status: from, attempts: attempt, review_note: `Спроба ${attempt} з ${s.production_attempts} не вдалася, повторю автоматично: ${reason}` });
+      return false;
+    }
+    log(`  ✖ ${item.title}: ${reason}`);
+    await updateItem(item.id, { status: "failed", attempts: attempt, review_note: `Помилка виробництва: ${reason}` });
+    // An approved item that silently never arrives looks like a hung farm — say what happened.
+    await notifyAdmins({
+      title: item.title,
+      summary: `❌ Не вдалося виробити: ${reason}
+Відкрити: ${await siteUrl()}/app/content/?id=${item.id}`,
+      details: "",
+    }).catch(() => undefined);
+    return false;
+  }
 }

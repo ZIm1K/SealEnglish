@@ -126,6 +126,8 @@ function readAnswer<S extends z.ZodType>(call: StructuredCall<S>, msg: Anthropic
 
 /** Structured call: returns data validated against the zod schema. */
 export async function structured<S extends z.ZodType>(opts: StructuredCall<S> & { s: FarmSettings; budget: Budget }): Promise<z.infer<S>> {
+  // Local runs (`farm local`) pay only for voices and pictures; the texts come from Claude in chat.
+  if (process.env.FARM_NO_LLM === "1") throw new Error(`Claude API вимкнено в локальному режимі (${opts.what})`);
   const c = await claude();
   const params = messageParams(opts.s, opts);
   for (let attempt = 1; ; attempt++) {
