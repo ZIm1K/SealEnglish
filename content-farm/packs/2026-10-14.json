@@ -1,0 +1,69 @@
+{
+  "tiktok": {
+    "title": "Сілі замовив чипси в Нью-Йорку",
+    "data": {
+      "hook_overlay": "Замовив чипси. Принесли ЦЕ",
+      "visual_style": "stylized 3D animated film background, Pixar-like, warm cozy light, soft depth of field",
+      "locations": [
+        { "prompt": "a small New York diner interior, red booths, chrome counter, a friendly waitress with a notepad standing behind the counter on the right, neon glow through the window, left foreground empty", "npc_side": "right" },
+        { "prompt": "close view of a diner table with a burger and a small bag of thin potato crisps on a plate, no fries anywhere, ketchup bottle, window with city lights, left foreground empty", "npc_side": "none" }
+      ],
+      "beats": [
+        { "speaker": "narrator", "speaker_name": "", "narration": "Сілі вперше прилетів у Нью-Йорк.", "delivery": "інтригуюче", "spoken": "", "speed": 1.05, "translation": "", "location": 0, "shot": "wide", "seal_visible": true, "seal_side": "left", "seal_pose": "stand-happy", "keyword": "Нью-Йорк", "english": "" },
+        { "speaker": "seal", "speaker_name": "Сілі", "narration": "A burger and chips, please!", "delivery": "впевнено, з усмішкою", "spoken": "", "speed": 1.0, "translation": "Бургер і чипси, будь ласка!", "location": 0, "shot": "seal", "seal_visible": true, "seal_side": "left", "seal_pose": "stand-joy", "keyword": "", "english": "chips" },
+        { "speaker": "en_female", "speaker_name": "Офіціантка", "narration": "Sure, honey. Burger and chips.", "delivery": "привітно, швидко", "spoken": "Sure, honey. Burger'n'chips.", "speed": 1.15, "translation": "Звісно, сонечко. Бургер і чипси.", "location": 0, "shot": "npc", "seal_visible": true, "seal_side": "left", "seal_pose": "stand-happy", "keyword": "", "english": "" },
+        { "speaker": "narrator", "speaker_name": "", "narration": "Він чекав гарячу картоплю фрі.", "delivery": "з передчуттям", "spoken": "", "speed": 1.0, "translation": "", "location": 1, "shot": "wide", "seal_visible": true, "seal_side": "left", "seal_pose": "stand-neutral", "keyword": "фрі", "english": "" },
+        { "speaker": "seal", "speaker_name": "Сілі", "narration": "Стоп. Це ж… пачка чипсів?!", "delivery": "розгублено, з паузою", "spoken": "Стоп. Це ж… пачка чипсів?!", "speed": 0.9, "translation": "", "location": 1, "shot": "punch", "seal_visible": true, "seal_side": "left", "seal_pose": "stand-surprised", "keyword": "чипсів", "english": "" },
+        { "speaker": "narrator", "speaker_name": "", "narration": "В Америці chips — це хрусткі чипси з пачки.", "delivery": "пояснює, спокійно", "spoken": "", "speed": 1.0, "translation": "", "location": 1, "shot": "wide", "seal_visible": true, "seal_side": "left", "seal_pose": "read-neutral", "keyword": "Америці", "english": "chips 🇺🇸 = чипси" },
+        { "speaker": "narrator", "speaker_name": "", "narration": "А картоплю фрі тут просять як fries.", "delivery": "з підморгуванням", "spoken": "", "speed": 1.0, "translation": "", "location": 0, "shot": "seal", "seal_visible": true, "seal_side": "left", "seal_pose": "stand-wink", "keyword": "fries", "english": "fries 🍟" },
+        { "speaker": "narrator", "speaker_name": "", "narration": "А в Лондоні chips — якраз фрі. Ти знав?", "delivery": "грайливо, з питанням", "spoken": "", "speed": 1.0, "translation": "", "location": 0, "shot": "wide", "seal_visible": true, "seal_side": "left", "seal_pose": "stand-happy", "keyword": "Лондоні", "english": "" }
+      ],
+      "ending_question": "Ти знав?",
+      "cover_title": "Замовив чипси — принесли ЦЕ",
+      "music_mood": "funny",
+      "caption_tiktok": "Сілі хотів картоплю фрі, а отримав пачку чипсів 🥲 А ти знав, у чому різниця? 👇",
+      "caption_instagram": "Одне слово — і замість гарячої картоплі ти жуєш чипси з пачки 🥲\n\nУ США chips — це чипси, а картопля фрі — fries.\nУ Британії навпаки: chips — це фрі, а чипси — crisps.\n\nЗбережи, щоб не помилитися в поїздці ✈️ І підписуйся на Сілі — далі буде ще смішніше.",
+      "hashtags": ["англійська", "english", "сілі", "нюйорк", "подорожі", "американськаанглійська", "fyp"],
+      "threads_post": "",
+      "telegram_post": "",
+      "sources": ""
+    }
+  },
+  "stories": {
+    "title": "«You alright?» — що відповісти британцю",
+    "data": {
+      "format": "quiz",
+      "series_label": "Як відповісти англійською?",
+      "scenes": [
+        { "kind": "hook", "voice": "Британець питає: You alright? Що робиш?", "headline": "«You alright?» 🤔", "sub": "Тобі не погано. Це просто привітання", "english": "You alright?", "wrong": "", "right": "", "options": [], "answer": -1, "reveal_voice": "", "mascot": "stand-surprised", "background": "brand", "image_prompt": "" },
+        { "kind": "quiz", "voice": "Який варіант звучить по-британськи природно?", "headline": "Що відповісти?", "sub": "", "english": "", "wrong": "", "right": "", "options": ["I'm sick, actually", "Yeah, you?", "Why do you ask?"], "answer": 1, "reveal_voice": "Yeah, you? Це просто «привіт, як воно», а не питання про здоров'я.", "mascot": "read-neutral", "background": "brand", "image_prompt": "" },
+        { "kind": "say", "voice": "Відповідати чесно про самопочуття тут не треба.", "headline": "Це не про здоров'я", "sub": "Як наше «Як воно?» на ходу", "english": "Yeah, not bad, you?", "wrong": "", "right": "", "options": [], "answer": -1, "reveal_voice": "", "mascot": "stand-wink", "background": "brand", "image_prompt": "" },
+        { "kind": "cta", "voice": "Пиши в коментарях, як відповіси ти.", "headline": "А ти як відповіси?", "sub": "Пробний урок — посилання в профілі", "english": "", "wrong": "", "right": "", "options": [], "answer": -1, "reveal_voice": "", "mascot": "wave-happy", "background": "brand", "image_prompt": "" }
+      ],
+      "cover_title": "You alright? — що відповісти",
+      "backdrop_prompt": "cozy London street cafe corner with a red phone box visible through the window, soft morning light",
+      "music_mood": "upbeat",
+      "caption_tiktok": "Британець каже «You alright?» — а ти що відповіси? 👇",
+      "caption_instagram": "«You alright?» — це не «тобі погано?», а британське «привіт, як воно».\nВідповідай легко: «Yeah, you?» або «Not bad, you?»\n\nХочеш звучати природно? Пробний урок — посилання в профілі.",
+      "hashtags": ["англійська", "english", "британськаанглійська", "smalltalk", "вчиманглійську", "сілі"],
+      "threads_post": "",
+      "telegram_post": ""
+    }
+  },
+  "posts": {
+    "threads": {
+      "text": "Найпідступніше слово для українців в англійській — actually.\n\nВоно НЕ означає «актуально». Actually — це «насправді».\n\n«Actually, I'm busy» — «Взагалі-то я зайнятий».\nА «актуально» — це relevant або up to date.\n\nЯке слово колись підставило вас?"
+    },
+    "telegram": {
+      "text": "🗣 Small talk англійською: 5 фраз, щоб не мовчати в ліфті\n\nНаше «ну як ти?» в англійській живе в десятку варіантів. Ось ті, що реально звучать на вулиці:\n\n• What's up? — Що нового? (відповідь: Not much, you?)\n• How's it going? — Як воно?\n• You alright? — британське «привіт, як ти»\n• How have you been? — Як ти там весь цей час?\n• Long time no see! — Сто років не бачились!\n\nЛайфхак: на такі питання не треба розповідати про свій день. Коротке «Good, you?» — і розмова пішла.\n\nЯку з цих фраз ти вже чув у серіалах? 👇\n\nХочеш потренувати живу розмову — пробний урок у Seal English безкоштовний.",
+      "image_prompt": "stylized 3D animated film scene, Pixar-like: Sílі the seal mascot waving cheerfully at a neighbor inside a bright modern elevator, warm friendly light, soft depth of field, no text, no signs with letters"
+    },
+    "instagram": {
+      "image_headline": "Actually ≠ актуально",
+      "image_sub": "actually — насправді · relevant — актуально",
+      "image_prompt": "stylized 3D animated film background, 4:5, calm pastel blue upper half for text, Sílі the seal mascot at the bottom looking surprised while reading a notebook at a cozy desk, warm light, no text",
+      "caption": "Скажи чесно: ти теж думав, що actually — це «актуально»? 😅\n\nНасправді actually = «насправді», «взагалі-то».\n✔️ Actually, I don't like coffee. — Взагалі-то я не люблю каву.\n\nА «актуально» англійською — relevant або up to date:\n✔️ This topic is still relevant. — Ця тема досі актуальна.\n\nЗбережи пост, щоб більше не плутати 📌\nЯке ще слово тебе колись підводило? Пиши в коментарях 👇",
+      "hashtags": ["англійська", "english", "falsefriends", "вчиманглійську", "англійськадляпідлітків", "сілі", "лексика"]
+    }
+  }
+}
