@@ -12,6 +12,7 @@ import { PageHeader, EmptyState } from "@/components/app/AppShell";
 import { useMe, isStaffRole } from "@/components/app/session";
 import { MistakesProfile } from "@/components/app/mistakes";
 import { Seal } from "@/components/mascot/Seal";
+import { Seal3D } from "@/components/mascot/Seal3D";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/overlay";
 import { Segmented, Textarea } from "@/components/ui/form";
@@ -236,11 +237,12 @@ function StudentPractice() {
         <Card className={cn("flex flex-col overflow-hidden", sessionId ? "h-[calc(100svh-9rem)] max-h-[44rem] min-h-[26rem]" : "min-h-[32rem]")}>
           {!sessionId ? (
             <div className="grid gap-5 p-5 sm:p-6">
-              <div className="flex items-center gap-4">
-                <div className="w-24 shrink-0"><Seal crop="head" emotion="happy" idle /></div>
-                <div>
-                  <h2 className="font-display text-lg font-semibold">Про що потренуємося?</h2>
-                  <p className="text-sm text-ink-soft">Сілі відповідає англійською під твій рівень і м&apos;яко виправляє помилки.</p>
+              <div className="relative flex items-end gap-3 overflow-hidden rounded-3xl bg-gradient-to-br from-seal-100 via-seal-50 to-violet-50 px-4 pt-4 sm:gap-6 sm:px-6">
+                <div aria-hidden className="absolute -top-16 -left-10 size-48 rounded-full bg-white/70 blur-2xl" />
+                <div className="relative -mb-1 w-20 shrink-0 sm:w-52"><Seal3D crop="bust" emotion="happy" wave track /></div>
+                <div className="relative min-w-0 pb-5 sm:pb-7">
+                  <h2 className="font-display text-base font-semibold text-ocean-900 sm:text-2xl">Про що потренуємося?</h2>
+                  <p className="mt-1 text-sm text-ink-soft">Сілі відповідає англійською під твій рівень і м&apos;яко виправляє помилки.</p>
                 </div>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
