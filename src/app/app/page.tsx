@@ -9,6 +9,7 @@ import { useMe, isStaffRole } from "@/components/app/session";
 import { EmptyState } from "@/components/app/AppShell";
 import { JoinButton, LessonDialog, LessonRow, NewLessonDialog } from "@/components/app/lessons";
 import { RecordLessonButton } from "@/components/app/recorder";
+import { BalanceCard } from "@/components/app/balance";
 import { Seal } from "@/components/mascot/Seal";
 import { Button } from "@/components/ui/button";
 import { Avatar, Badge, Card, CardHeader, Skeleton } from "@/components/ui/misc";
@@ -128,6 +129,7 @@ function StudentBoard({ upcoming, loading, onOpen }: { upcoming: Lesson[]; loadi
     <div className="grid gap-6 lg:grid-cols-[1.3fr_1fr]">
       <UpcomingCard upcoming={upcoming} loading={loading} onOpen={onOpen} />
       <div className="grid gap-6">
+        {me.age_group === "adults" && <BalanceCard />}
         {ai?.tutor && (
           <Link href="/app/practice/" className="card group flex items-center gap-4 overflow-hidden bg-gradient-to-br from-violet-50 to-seal-50 p-5 transition hover:shadow-lift">
             <div className="w-16 shrink-0"><Seal crop="head" emotion="wink" idle={false} /></div>

@@ -17,9 +17,10 @@ import { Dialog, DialogContent, Menu, MenuContent, MenuItem, MenuLabel, MenuSepa
 import { Field, Input, Segmented, Select } from "@/components/ui/form";
 import { Avatar, Badge, Skeleton } from "@/components/ui/misc";
 import { callFunction, supabase } from "@/lib/supabase";
-import { useAiFeatures, useGroups, usePeople } from "@/lib/queries";
+import { useAiFeatures, useGroups, usePeople, useStudentBalances } from "@/lib/queries";
+import { BalanceBadge, PaymentsPanel } from "@/components/app/balance";
 import { fmtDateTime } from "@/lib/dates";
-import { AGE_LABEL, LEVELS, ROLE_LABEL, type AgeGroup, type PracticeSession, type Profile, type RiskRow, type Role } from "@/lib/types";
+import { AGE_LABEL, LEVELS, ROLE_LABEL, type AgeGroup, type PracticeSession, type Profile, type RiskRow, type Role, type StudentBalance } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { CredentialsDialog, type Credentials } from "@/components/app/CredentialsDialog";
 import { startImpersonation } from "@/lib/impersonate";
@@ -34,6 +35,7 @@ function PeopleInner() {
   const { data: people = [], isLoading } = usePeople();
   const { data: groups = [] } = useGroups();
   const { data: ai } = useAiFeatures();
+  const { data: balances } = useStudentBalances(staff);
   const [tab, setTab] = useState<Tab>(() => (params.get("risk") ? "risk" : "student"));
   const [q, setQ] = useState("");
   const [creating, setCreating] = useState(false);
@@ -104,7 +106,7 @@ function PeopleInner() {
       ) : (
         <div className="card divide-y divide-line overflow-hidden">
           {list.map((p) => (
-            <PersonRow key={p.id} p={p} teacher={staff && p.teacher_id ? people.find((t) => t.id === p.teacher_id)?.full_name : undefined} groups={groupsOf.get(p.id) ?? []} risk={riskOf.get(p.id)} editable={staff && p.id !== me.id} onCredentials={setCredentials} onOpen={p.role === "student" ? () => open(p.id) : undefined} />
+            <PersonRow key={p.id} p={p} balance={staff ? balances?.get(p.id) : undefined} teacher={staff && p.teacher_id ? people.find((t) => t.id === p.teacher_id)?.full_name : undefined} groups={groupsOf.get(p.id) ?? []} risk={riskOf.get(p.id)} editable={staff && p.id !== me.id} onCredentials={setCredentials} onOpen={p.role === "student" ? () => open(p.id) : undefined} />
           ))}
         </div>
       )}
@@ -121,8 +123,9 @@ function RiskBadge({ r }: { r?: RiskRow }) {
   return <Badge tone={r.score >= 60 ? "red" : "sun"} title={r.explanation ?? undefined}><TrendingDown className="size-3" /> ризик {r.score}</Badge>;
 }
 
-function PersonRow({ p, teacher, groups, risk, editable, onCredentials, onOpen }: {
+function PersonRow({ p, balance, teacher, groups, risk, editable, onCredentials, onOpen }: {
   p: Profile;
+  balance?: StudentBalance;
   teacher?: string;
   groups: string[];
   risk?: RiskRow;
@@ -160,6 +163,7 @@ function PersonRow({ p, teacher, groups, risk, editable, onCredentials, onOpen }
         </div>
       </button>
       <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+        <BalanceBadge b={balance} />
         {teacher && <Badge tone="grape" title="Закріплений викладач (індивідуальні уроки)"><GraduationCap className="size-3" /> {teacher}</Badge>}
         {groups.map((g) => <Badge key={g} tone="seal">{g}</Badge>)}
         {p.telegram_chat_id ? <Badge tone="mint"><Send className="size-3" /> Telegram</Badge> : null}
@@ -338,7 +342,7 @@ function EditProfileDialog({ p, onClose }: { p: Profile; onClose: () => void }) 
 function StudentDialog({ id, person, groups, risk, onClose }: { id: string | null; person: Profile | null; groups: string[]; risk?: RiskRow; onClose: () => void }) {
   const me = useMe();
   const { data: ai } = useAiFeatures();
-  const [tab, setTab] = useState<"mistakes" | "practice" | "parents">("mistakes");
+  const [tab, setTab] = useState<"mistakes" | "practice" | "parents" | "payments">("mistakes");
   return (
     <Dialog open={!!id} onOpenChange={(v) => !v && onClose()}>
       {id && (
@@ -360,11 +364,13 @@ function StudentDialog({ id, person, groups, risk, onClose }: { id: string | nul
                 { value: "mistakes", label: "Профіль помилок" },
                 { value: "practice", label: "Практика з ШІ" },
                 ...(isStaffRole(me.role) || ai?.parent_reports ? [{ value: "parents" as const, label: "Батьки" }] : []),
+                ...(isStaffRole(me.role) ? [{ value: "payments" as const, label: "Оплати" }] : []),
               ]}
             />
             {tab === "mistakes" && <MistakesProfile studentId={id} editable />}
             {tab === "practice" && <StudentPractice studentId={id} />}
             {tab === "parents" && <Parents studentId={id} enabled={!!ai?.parent_reports} />}
+            {tab === "payments" && isStaffRole(me.role) && person && <PaymentsPanel student={person} />}
           </div>
         </DialogContent>
       )}

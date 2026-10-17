@@ -25,8 +25,41 @@ export interface Profile {
   is_active: boolean;
   /** assigned teacher for individual lessons (students) */
   teacher_id: string | null;
+  /** students: lessons are counted against paid packages (off for students paid the old way) */
+  billing_enabled: boolean;
+  /** students: lessons before this moment are not counted against the balance */
+  billing_from: string;
   created_at: string;
 }
+
+/** A paid lesson package, entered by a manager or the admin. */
+export interface StudentPayment {
+  id: string;
+  student_id: string;
+  paid_on: string;
+  amount: number;
+  lessons: number;
+  note: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface StudentBalance {
+  student_id: string;
+  enabled: boolean;
+  has_payments: boolean;
+  paid_uah: number;
+  balance_uah: number;
+  lessons_paid: number;
+  lessons_used: number;
+  lessons_left: number;
+  price_per_lesson: number | null;
+  last_paid_on: string | null;
+  upcoming: number;
+}
+
+/** At this many paid lessons left the student is asked to pay for the next package. */
+export const LOW_BALANCE_LESSONS = 3;
 
 export type ProfileLite = Pick<Profile, "id" | "full_name" | "avatar_url"> & Partial<Pick<Profile, "email" | "role" | "level">>;
 

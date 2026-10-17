@@ -15,6 +15,7 @@ import { formatDistanceToNow } from "date-fns";
 import { uk } from "date-fns/locale";
 import { useSession, isStaffRole } from "./session";
 import { ImpersonationBanner, ViewAsDialog } from "./view-as";
+import { LowBalanceBanner } from "./balance";
 import { useImpersonator } from "@/lib/impersonate";
 import { Logo } from "@/components/site/Logo";
 import { Avatar, Badge, Spinner } from "@/components/ui/misc";
@@ -209,6 +210,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="flex min-w-0 flex-col">
         <div className="sticky top-0 z-30">
           <ImpersonationBanner profile={profile} />
+          <LowBalanceBanner profile={profile} />
           <header className="flex h-16 items-center gap-3 border-b border-line/70 bg-canvas/85 px-4 backdrop-blur-xl sm:px-6 lg:px-8">
             <button onClick={() => setMobileOpen(true)} className="flex size-10 items-center justify-center rounded-xl text-ink hover:bg-white lg:hidden" aria-label="Меню">
               <MenuIcon className="size-5" />
