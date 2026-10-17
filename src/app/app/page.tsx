@@ -10,7 +10,7 @@ import { EmptyState } from "@/components/app/AppShell";
 import { JoinButton, LessonDialog, LessonRow, NewLessonDialog } from "@/components/app/lessons";
 import { RecordLessonButton } from "@/components/app/recorder";
 import { BalanceCard } from "@/components/app/balance";
-import { Seal } from "@/components/mascot/Seal";
+import { Seal3D } from "@/components/mascot/Seal3D";
 import { Button } from "@/components/ui/button";
 import { Avatar, Badge, Card, CardHeader, Skeleton } from "@/components/ui/misc";
 import { supabase } from "@/lib/supabase";
@@ -82,7 +82,7 @@ function Hello({ next }: { next?: Lesson }) {
           )}
         </div>
         <div className="mx-auto hidden w-52 md:block">
-          <Seal emotion={next ? "happy" : "neutral"} wave reading track crop="bust" />
+          <Seal3D emotion={next ? "happy" : "neutral"} wave reading track crop="bust" />
         </div>
       </div>
     </section>
@@ -132,7 +132,7 @@ function StudentBoard({ upcoming, loading, onOpen }: { upcoming: Lesson[]; loadi
         {me.age_group === "adults" && <BalanceCard />}
         {ai?.tutor && (
           <Link href="/app/practice/" className="card group flex items-center gap-4 overflow-hidden bg-gradient-to-br from-violet-50 to-seal-50 p-5 transition hover:shadow-lift">
-            <div className="w-16 shrink-0"><Seal crop="head" emotion="wink" idle={false} /></div>
+            <div className="w-16 shrink-0"><Seal3D crop="head" emotion="wink" idle={false} /></div>
             <div className="min-w-0 flex-1">
               <div className="font-display font-semibold text-ocean-900">Потренуйся з Сілі 🦭</div>
               <div className="text-sm text-ink-soft">Коротка практика на матеріалі твого уроку · сьогодні ще {ai.tutor_messages_left} повідомлень</div>

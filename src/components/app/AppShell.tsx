@@ -20,7 +20,8 @@ import { useImpersonator } from "@/lib/impersonate";
 import { Logo } from "@/components/site/Logo";
 import { Avatar, Badge, Spinner } from "@/components/ui/misc";
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/components/ui/overlay";
-import { Seal, type SealEmotion } from "@/components/mascot/Seal";
+import { type SealEmotion } from "@/components/mascot/Seal";
+import { Seal3D } from "@/components/mascot/Seal3D";
 import { supabase } from "@/lib/supabase";
 import { useAiFeatures } from "@/lib/queries";
 import { ROLE_LABEL, type Notification, type Role } from "@/lib/types";
@@ -110,7 +111,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (!loading && session && !profile) {
     return (
       <div className="flex min-h-svh flex-col items-center justify-center gap-4 p-6 text-center">
-        <div className="w-32"><Seal crop="head" emotion="surprised" /></div>
+        <div className="w-32"><Seal3D crop="head" emotion="surprised" /></div>
         <h1 className="font-display text-xl font-bold">Не вдалося завантажити профіль</h1>
         <p className="max-w-sm text-ink-soft">Перевірте з&apos;єднання й спробуйте ще раз. Якщо помилка повторюється — зверніться до менеджера школи.</p>
         <div className="flex gap-3">
@@ -124,7 +125,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (loading || !session || !profile) {
     return (
       <div className="flex min-h-svh flex-col items-center justify-center gap-3">
-        <div className="w-28"><Seal crop="head" emotion="neutral" reading /></div>
+        <div className="w-28"><Seal3D crop="head" emotion="neutral" reading /></div>
         <Spinner />
       </div>
     );
@@ -133,7 +134,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (!profile.is_active) {
     return (
       <div className="flex min-h-svh flex-col items-center justify-center gap-4 p-6 text-center">
-        <div className="w-36"><Seal crop="head" emotion="sad" /></div>
+        <div className="w-36"><Seal3D crop="head" emotion="sad" /></div>
         <h1 className="font-display text-xl font-bold">Акаунт деактивовано</h1>
         <p className="max-w-sm text-ink-soft">Зверніться до менеджера школи, щоб відновити доступ.</p>
         <button onClick={signOut} className="font-semibold text-seal-700 hover:underline">Вийти</button>
@@ -271,7 +272,7 @@ function SidebarMascot({ role }: { role: Role }) {
     <div className="relative mt-4 overflow-hidden rounded-3xl bg-gradient-to-br from-ocean-800 to-seal-600 p-4 text-white">
       <div className="relative z-10 max-w-[9rem] text-sm font-semibold">{tips[role]}</div>
       <div className="absolute -right-4 -bottom-6 w-28">
-        <Seal crop="bust" emotion="happy" idle />
+        <Seal3D crop="bust" emotion="happy" idle />
       </div>
       <div className="h-14" />
     </div>
@@ -337,7 +338,7 @@ function NotificationsBell({ userId }: { userId: string }) {
           <div className="max-h-[26rem] overflow-y-auto p-2">
             {items.length === 0 ? (
               <div className="flex flex-col items-center gap-2 py-8 text-center text-sm text-mute">
-                <div className="w-20"><Seal crop="head" emotion="sleepy" idle={false} /></div>
+                <div className="w-20"><Seal3D crop="head" emotion="sleepy" idle={false} /></div>
                 Поки тихо. Сповіщення з&apos;являться тут.
               </div>
             ) : (
@@ -392,7 +393,7 @@ export function EmptyState({
 }) {
   return (
     <div className="flex flex-col items-center rounded-4xl border border-dashed border-seal-200 bg-white/60 px-6 py-14 text-center">
-      <div className="w-28"><Seal crop="head" emotion={emotion} idle={false} /></div>
+      <div className="w-28"><Seal3D crop="head" emotion={emotion} idle={false} /></div>
       <h3 className="mt-4 font-display text-lg font-semibold text-ocean-900">{title}</h3>
       {text && <p className="mt-1.5 max-w-md text-sm text-ink-soft">{text}</p>}
       {action && <div className="mt-5">{action}</div>}
