@@ -7,7 +7,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   KeyRound, MoreHorizontal, Search, ShieldCheck, Trash2, UserCheck, UserPlus, UserX, Send, Check, Pencil, TrendingDown, Copy, Link2Off,
-  BellRing, GraduationCap,
+  BellRing, GraduationCap, Eye, EyeOff, Dices,
 } from "lucide-react";
 import { PageHeader, EmptyState } from "@/components/app/AppShell";
 import { useMe, isStaffRole } from "@/components/app/session";
@@ -21,7 +21,8 @@ import { useAiFeatures, useGroups, usePeople } from "@/lib/queries";
 import { fmtDateTime } from "@/lib/dates";
 import { AGE_LABEL, LEVELS, ROLE_LABEL, type AgeGroup, type PracticeSession, type Profile, type RiskRow, type Role } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { CredentialsDialog } from "@/components/app/CredentialsDialog";
+import { CredentialsDialog, type Credentials } from "@/components/app/CredentialsDialog";
+import { startImpersonation } from "@/lib/impersonate";
 
 type Tab = "student" | "teacher" | "staff" | "risk";
 
@@ -36,7 +37,7 @@ function PeopleInner() {
   const [tab, setTab] = useState<Tab>(() => (params.get("risk") ? "risk" : "student"));
   const [q, setQ] = useState("");
   const [creating, setCreating] = useState(false);
-  const [credentials, setCredentials] = useState<{ email: string; password: string; name: string } | null>(null);
+  const [credentials, setCredentials] = useState<Credentials | null>(null);
   const openId = params.get("student");
 
   const groupsOf = useMemo(() => {
@@ -126,16 +127,17 @@ function PersonRow({ p, teacher, groups, risk, editable, onCredentials, onOpen }
   groups: string[];
   risk?: RiskRow;
   editable: boolean;
-  onCredentials: (c: { email: string; password: string; name: string }) => void;
+  onCredentials: (c: Credentials) => void;
   onOpen?: () => void;
 }) {
   const me = useMe();
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
   const act = useMutation({
     mutationFn: (body: Record<string, unknown>) => callFunction<{ password?: string }>("admin", { user_id: p.id, ...body }),
     onSuccess: (r, body) => {
-      if (body.action === "reset_password" && r.password) onCredentials({ email: p.email ?? "", password: r.password, name: p.full_name });
+      if (body.action === "reset_password" && r.password) onCredentials({ email: p.email ?? "", password: r.password, name: p.full_name, changed: true });
       else toast.success("Збережено");
       qc.invalidateQueries({ queryKey: ["people"] });
     },
@@ -179,7 +181,10 @@ function PersonRow({ p, teacher, groups, risk, editable, onCredentials, onOpen }
                 </MenuItem>
               ))}
               <MenuSeparator />
-              <MenuItem onSelect={() => confirm(`Згенерувати новий пароль для ${p.full_name}? Старий перестане працювати.`) && act.mutate({ action: "reset_password" })}><KeyRound /> Новий пароль</MenuItem>
+              <MenuItem onSelect={() => setChangingPassword(true)}><KeyRound /> Змінити пароль</MenuItem>
+              {me.role === "admin" && p.is_active && (
+                <MenuItem onSelect={() => startImpersonation(p.id, me.full_name).catch((e: Error) => toast.error(e.message))}><Eye /> Переглянути як {p.full_name.split(" ")[0]}</MenuItem>
+              )}
               {p.is_active ? (
                 <MenuItem onSelect={() => confirm(`Деактивувати ${p.full_name}? Людина не зможе увійти.`) && act.mutate({ action: "update_user", is_active: false })}><UserX /> Деактивувати</MenuItem>
               ) : (
@@ -193,7 +198,65 @@ function PersonRow({ p, teacher, groups, risk, editable, onCredentials, onOpen }
         )}
       </div>
       {editing && <EditProfileDialog p={p} onClose={() => setEditing(false)} />}
+      {changingPassword && (
+        <PasswordDialog
+          p={p}
+          busy={act.isPending}
+          onClose={() => setChangingPassword(false)}
+          onSubmit={(password) => act.mutate({ action: "reset_password", password }, { onSuccess: () => setChangingPassword(false) })}
+        />
+      )}
     </div>
+  );
+}
+
+/** Staff set a password directly — the person gets it from them, no email links involved. */
+function PasswordDialog({ p, busy, onClose, onSubmit }: { p: Profile; busy: boolean; onClose: () => void; onSubmit: (password: string) => void }) {
+  const [password, setPassword] = useState("");
+  const [show, setShow] = useState(false);
+  const generate = () => {
+    const alphabet = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    const bytes = crypto.getRandomValues(new Uint8Array(10));
+    setPassword("Seal-" + Array.from(bytes, (b) => alphabet[b % alphabet.length]).join(""));
+    setShow(true);
+  };
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent title={`Пароль · ${p.full_name}`} description="Новий пароль діє одразу, старий перестане працювати. Передайте його людині самостійно.">
+        <form onSubmit={(e) => { e.preventDefault(); onSubmit(password); }} className="grid gap-4">
+          <Field label="Новий пароль" hint="мінімум 8 символів">
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Input
+                  type={show ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  minLength={8}
+                  maxLength={72}
+                  required
+                  autoComplete="new-password"
+                  className="pr-11"
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={() => setShow((v) => !v)}
+                  className="absolute top-1/2 right-2 flex size-8 -translate-y-1/2 cursor-pointer items-center justify-center rounded-lg text-mute hover:bg-seal-50 hover:text-ink"
+                  aria-label={show ? "Сховати пароль" : "Показати пароль"}
+                >
+                  {show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                </button>
+              </div>
+              <Button type="button" variant="outline" onClick={generate}><Dices /> Згенерувати</Button>
+            </div>
+          </Field>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={onClose}>Скасувати</Button>
+            <Button type="submit" variant="ocean" loading={busy}><KeyRound /> Зберегти пароль</Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

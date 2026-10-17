@@ -250,7 +250,11 @@ Deno.serve(handle(async (req) => {
       const { data: target } = await admin.from("profiles").select("role").eq("id", input.user_id).maybeSingle();
       if (!target) throw new HttpError(404, "Користувача не знайдено");
       if (target.role === "admin" && me.role !== "admin") throw new HttpError(403, "Недостатньо прав");
-      const password = genPassword();
+      // an explicit password is set as is (no email round-trip); otherwise a random one is generated
+      const wanted = typeof input.password === "string" ? input.password : "";
+      if (wanted && wanted.length < 8) throw new HttpError(422, "Пароль має містити щонайменше 8 символів");
+      if (wanted.length > 72) throw new HttpError(422, "Пароль задовгий (максимум 72 символи)");
+      const password = wanted || genPassword();
       const { error } = await admin.auth.admin.updateUserById(input.user_id, { password });
       if (error) throw new HttpError(400, error.message);
       return json({ ok: true, password });
@@ -281,6 +285,22 @@ Deno.serve(handle(async (req) => {
         if (error) throw error;
       }
       return json({ ok: true });
+    }
+
+    case "impersonate": {
+      // "View as": a one-time sign-in token for the target account. Nothing is emailed — the admin's
+      // browser redeems it right away and keeps its own session aside to come back to.
+      adminOnly();
+      if (input.user_id === me.id) throw new HttpError(422, "Це ваш власний акаунт");
+      const { data: target } = await admin.from("profiles").select("id, email, full_name, role, is_active").eq("id", input.user_id).maybeSingle();
+      if (!target) throw new HttpError(404, "Користувача не знайдено");
+      if (!target.is_active) throw new HttpError(422, "Акаунт деактивовано — спершу активуйте його");
+      const { data: u, error: uErr } = await admin.auth.admin.getUserById(target.id);
+      if (uErr || !u.user?.email) throw new HttpError(400, "У акаунта немає email для входу");
+      const { data, error } = await admin.auth.admin.generateLink({ type: "magiclink", email: u.user.email });
+      if (error || !data.properties?.hashed_token) throw new HttpError(400, error?.message ?? "Не вдалося створити вхід");
+      console.log(`impersonate: admin ${me.id} -> ${target.id} (${target.role})`);
+      return json({ token_hash: data.properties.hashed_token, full_name: target.full_name, role: target.role });
     }
 
     case "delete_user": {

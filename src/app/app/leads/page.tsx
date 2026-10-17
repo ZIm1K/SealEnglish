@@ -496,7 +496,7 @@ function ConvertDialog({ lead, open, onOpenChange, onDone }: { lead: Lead; open:
         <DialogContent title="Зробити учнем" description="Створимо акаунт у кабінеті, заявка отримає статус «Став учнем»">
           <form onSubmit={(e) => { e.preventDefault(); convert.mutate(); }} className="grid gap-5">
             <Field label="Ім'я учня"><Input value={name} onChange={(e) => setName(e.target.value)} required /></Field>
-            <Field label="Email для входу" hint="це логін; на нього прийде відновлення пароля"><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="student@gmail.com" /></Field>
+            <Field label="Email для входу" hint="це логін для входу в кабінет"><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="student@gmail.com" /></Field>
             <Field label="Рівень">
               <Select value={level} onChange={(e) => setLevel(e.target.value)}>
                 <option value="">—</option>

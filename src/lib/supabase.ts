@@ -50,7 +50,6 @@ export function must<T>(res: { data: T | null; error: { message: string } | null
 
 export function humanizeError(msg: string) {
   if (/Invalid login credentials/i.test(msg)) return "Невірний email або пароль";
-  if (/Email not confirmed/i.test(msg)) return "Email ще не підтверджено";
   if (/row-level security|permission denied/i.test(msg)) return "Недостатньо прав для цієї дії";
   if (/duplicate key/i.test(msg)) return "Такий запис уже існує";
   if (/network|fetch/i.test(msg)) return "Немає з'єднання. Перевірте інтернет";

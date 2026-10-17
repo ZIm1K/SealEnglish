@@ -8,12 +8,14 @@ import { AnimatePresence, motion } from "motion/react";
 import {
   Bell, BookOpen, Bot, CalendarDays, CheckCheck, FolderOpen, Home, Inbox, LogOut, Menu as MenuIcon, MessagesSquare,
   Settings, ShieldCheck, Users, UsersRound, Wallet, X, Plug, GraduationCap,
-  Clapperboard,
+  Clapperboard, Eye, ArrowLeft,
 } from "lucide-react";
 import { Popover } from "radix-ui";
 import { formatDistanceToNow } from "date-fns";
 import { uk } from "date-fns/locale";
 import { useSession, isStaffRole } from "./session";
+import { ImpersonationBanner, ViewAsDialog } from "./view-as";
+import { useImpersonator } from "@/lib/impersonate";
 import { Logo } from "@/components/site/Logo";
 import { Avatar, Badge, Spinner } from "@/components/ui/misc";
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/components/ui/overlay";
@@ -56,6 +58,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [viewAs, setViewAs] = useState(false);
+  const keptAdmin = useImpersonator();
+  const impersonating = !!keptAdmin && !!profile && keptAdmin.id !== profile.id;
   const { data: ai } = useAiFeatures();
 
   useEffect(() => {
@@ -202,36 +207,47 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </AnimatePresence>
 
       <div className="flex min-w-0 flex-col">
-        <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-line/70 bg-canvas/85 px-4 backdrop-blur-xl sm:px-6 lg:px-8">
-          <button onClick={() => setMobileOpen(true)} className="flex size-10 items-center justify-center rounded-xl text-ink hover:bg-white lg:hidden" aria-label="Меню">
-            <MenuIcon className="size-5" />
-          </button>
-          <div className="min-w-0 flex-1">
-            <div className="truncate font-display text-[0.95rem] font-semibold text-ocean-900">{activeItem?.label ?? "Кабінет"}</div>
-          </div>
-          <NotificationsBell userId={profile.id} />
-          <Menu>
-            <MenuTrigger asChild>
-              <button className="flex cursor-pointer items-center gap-2.5 rounded-2xl py-1 pr-2 pl-1 transition hover:bg-white">
-                <Avatar name={profile.full_name} src={profile.avatar_url} size={34} />
-                <span className="hidden text-left sm:block">
-                  <span className="block max-w-40 truncate text-sm leading-tight font-semibold">{profile.full_name}</span>
-                  <span className="block text-xs leading-tight text-mute">{ROLE_LABEL[profile.role]}</span>
-                </span>
-              </button>
-            </MenuTrigger>
-            <MenuContent>
-              <MenuLabel>{profile.email}</MenuLabel>
-              <MenuItem onSelect={() => router.push("/app/settings/")}><Settings /> Налаштування</MenuItem>
-              {profile.role === "admin" && (
-                <MenuItem onSelect={() => router.push("/app/settings/integrations/")}><ShieldCheck /> Інтеграції</MenuItem>
-              )}
-              <MenuItem onSelect={() => router.push("/")}><Home /> Сайт школи</MenuItem>
-              <MenuSeparator />
-              <MenuItem danger onSelect={async () => { await signOut(); router.replace("/login/"); }}><LogOut /> Вийти</MenuItem>
-            </MenuContent>
-          </Menu>
-        </header>
+        <div className="sticky top-0 z-30">
+          <ImpersonationBanner profile={profile} />
+          <header className="flex h-16 items-center gap-3 border-b border-line/70 bg-canvas/85 px-4 backdrop-blur-xl sm:px-6 lg:px-8">
+            <button onClick={() => setMobileOpen(true)} className="flex size-10 items-center justify-center rounded-xl text-ink hover:bg-white lg:hidden" aria-label="Меню">
+              <MenuIcon className="size-5" />
+            </button>
+            <div className="min-w-0 flex-1">
+              <div className="truncate font-display text-[0.95rem] font-semibold text-ocean-900">{activeItem?.label ?? "Кабінет"}</div>
+            </div>
+            <NotificationsBell userId={profile.id} />
+            <Menu>
+              <MenuTrigger asChild>
+                <button className="flex cursor-pointer items-center gap-2.5 rounded-2xl py-1 pr-2 pl-1 transition hover:bg-white">
+                  <Avatar name={profile.full_name} src={profile.avatar_url} size={34} />
+                  <span className="hidden text-left sm:block">
+                    <span className="block max-w-40 truncate text-sm leading-tight font-semibold">{profile.full_name}</span>
+                    <span className="block text-xs leading-tight text-mute">{ROLE_LABEL[profile.role]}</span>
+                  </span>
+                </button>
+              </MenuTrigger>
+              <MenuContent>
+                <MenuLabel>{profile.email}</MenuLabel>
+                <MenuItem onSelect={() => router.push("/app/settings/")}><Settings /> Налаштування</MenuItem>
+                {profile.role === "admin" && (
+                  <>
+                    <MenuItem onSelect={() => setViewAs(true)}><Eye /> Переглянути як…</MenuItem>
+                    <MenuItem onSelect={() => router.push("/app/settings/integrations/")}><ShieldCheck /> Інтеграції</MenuItem>
+                  </>
+                )}
+                <MenuItem onSelect={() => router.push("/")}><Home /> Сайт школи</MenuItem>
+                <MenuSeparator />
+                {impersonating ? (
+                  <MenuItem onSelect={() => signOut()}><ArrowLeft /> Повернутися до свого акаунта</MenuItem>
+                ) : (
+                  <MenuItem danger onSelect={async () => { await signOut(); router.replace("/login/"); }}><LogOut /> Вийти</MenuItem>
+                )}
+              </MenuContent>
+            </Menu>
+          </header>
+        </div>
+        {profile.role === "admin" && <ViewAsDialog open={viewAs} onOpenChange={setViewAs} me={profile} />}
         <main id="main" tabIndex={-1} className="app-main min-w-0 flex-1 overflow-x-clip px-4 py-6 outline-none sm:px-6 lg:px-8 lg:py-8">
           <motion.div key={pathname} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
             {children}

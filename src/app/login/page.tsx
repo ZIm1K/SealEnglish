@@ -11,11 +11,12 @@ import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/form";
 import { humanizeError, supabase } from "@/lib/supabase";
 import type { SealEmotion } from "@/components/mascot/Seal";
+import { SITE } from "@/content/site";
 
 export default function LoginPage() {
   const router = useRouter();
   const { session, loading } = useSession();
-  const [mode, setMode] = useState<"login" | "reset">("login");
+  const [forgot, setForgot] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
@@ -32,20 +33,11 @@ export default function LoginPage() {
     e.preventDefault();
     setBusy(true);
     try {
-      if (mode === "login") {
-        const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-        if (error) throw error;
-        setEmotion("joy");
-        setBubble("Yay! Let's go! 🎉");
-        router.replace("/app/");
-      } else {
-        const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-          redirectTo: `${window.location.origin}/auth/callback/?next=/auth/reset/`,
-        });
-        if (error) throw error;
-        toast.success("Лист для відновлення пароля надіслано. Перевірте пошту.");
-        setMode("login");
-      }
+      const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      if (error) throw error;
+      setEmotion("joy");
+      setBubble("Yay! Let's go! 🎉");
+      router.replace("/app/");
     } catch (err) {
       const msg = humanizeError(err instanceof Error ? err.message : String(err));
       toast.error(msg);
@@ -59,14 +51,14 @@ export default function LoginPage() {
 
   return (
     <AuthShell
-      title={mode === "login" ? "Вхід до кабінету" : "Відновлення пароля"}
-      subtitle={mode === "login" ? "Для учнів, викладачів і менеджерів Seal English" : "Надішлемо посилання для створення нового пароля"}
+      title="Вхід до кабінету"
+      subtitle="Для учнів, викладачів і менеджерів Seal English"
       emotion={emotion}
       bubble={bubble}
       look={look}
     >
       <form onSubmit={submit} className="grid gap-5">
-        <Field label="Логін (email)" htmlFor="email" hint={mode === "login" ? "ваш логін — це ваша пошта" : undefined}>
+        <Field label="Логін (email)" htmlFor="email" hint="ваш логін — це ваша пошта">
           <Input
             id="email"
             type="email"
@@ -82,12 +74,11 @@ export default function LoginPage() {
             placeholder="you@example.com"
           />
         </Field>
-        {mode === "login" && (
-          <Field
+        <Field
             label="Пароль"
             htmlFor="password"
             hint={
-              <button type="button" onClick={() => setMode("reset")} className="cursor-pointer font-semibold text-seal-700 hover:underline">
+              <button type="button" onClick={() => setForgot((v) => !v)} aria-expanded={forgot} className="cursor-pointer font-semibold text-seal-700 hover:underline">
                 Забули пароль?
               </button>
             }
@@ -121,15 +112,16 @@ export default function LoginPage() {
               </button>
             </div>
           </Field>
+        {forgot && (
+          <p className="rounded-2xl bg-seal-50 p-4 text-sm text-ink-soft">
+            Напишіть менеджеру школи{" "}
+            <a href={SITE.social.telegram} target="_blank" rel="noreferrer" className="font-semibold text-seal-700 hover:underline">у Telegram</a>
+            {" "}або зателефонуйте <a href={`tel:${SITE.phone.replace(/\s/g, "")}`} className="font-semibold whitespace-nowrap text-seal-700 hover:underline">{SITE.phone}</a> — вам встановлять новий пароль.
+          </p>
         )}
         <Button type="submit" size="lg" loading={busy} className="mt-1 w-full">
-          {mode === "login" ? (<><LogIn /> Увійти</>) : "Надіслати посилання"}
+          <LogIn /> Увійти
         </Button>
-        {mode === "reset" && (
-          <button type="button" onClick={() => setMode("login")} className="cursor-pointer text-sm font-semibold text-seal-700 hover:underline">
-            ← Повернутися до входу
-          </button>
-        )}
       </form>
       <div className="mt-10 rounded-3xl border border-line bg-white p-5 text-sm text-ink-soft">
         Ще не навчаєтесь у нас? Акаунт створює менеджер після пробного уроку.{" "}

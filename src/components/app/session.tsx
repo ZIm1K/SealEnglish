@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import { getImpersonator, stopImpersonation } from "@/lib/impersonate";
 import type { Profile, Role } from "@/lib/types";
 
 interface SessionState {
@@ -57,6 +58,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       loading,
       refreshProfile: () => loadProfile(session?.user.id),
       signOut: async () => {
+        // while an admin views someone's cabinet, "sign out" means going back to the admin account
+        if (getImpersonator()) return stopImpersonation();
         // local: signing out here must not kill this account's sessions on other devices (e.g. a lesson being recorded)
         await supabase.auth.signOut({ scope: "local" });
         setProfile(null);

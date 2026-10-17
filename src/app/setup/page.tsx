@@ -15,7 +15,7 @@ import { humanizeError, supabase } from "@/lib/supabase";
 export default function SetupPage() {
   const router = useRouter();
   const { session, refreshProfile } = useSession();
-  const [state, setState] = useState<"loading" | "open" | "closed" | "confirm">("loading");
+  const [state, setState] = useState<"loading" | "open" | "closed">("loading");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -45,11 +45,11 @@ export default function SetupPage() {
       const { data, error } = await supabase.auth.signUp({
         email: email.trim(),
         password,
-        options: { data: { full_name: name.trim() }, emailRedirectTo: `${window.location.origin}/auth/callback/?next=/setup/` },
+        options: { data: { full_name: name.trim() } },
       });
       if (error) throw error;
-      if (data.session) await claim();
-      else setState("confirm");
+      if (!data.session) throw new Error("Не вдалося увійти в новий акаунт. Спробуйте увійти на сторінці входу.");
+      await claim();
     } catch (err) {
       toast.error(humanizeError(err instanceof Error ? err.message : String(err)));
     } finally {
@@ -69,14 +69,6 @@ export default function SetupPage() {
     return (
       <AuthShell title="Налаштування завершено" subtitle="Адміністратор школи вже існує." emotion="neutral" bubble="All set! ✅">
         <Button onClick={() => router.push("/login/")} size="lg" className="w-full">Перейти до входу</Button>
-      </AuthShell>
-    );
-  }
-
-  if (state === "confirm") {
-    return (
-      <AuthShell title="Підтвердіть email" subtitle="Ми надіслали лист із посиланням. Після підтвердження ви повернетеся сюди й завершите налаштування." emotion="wink" bubble="Check your inbox! 📬">
-        <Button variant="outline" onClick={() => router.push("/login/")} size="lg" className="w-full">Я вже підтвердив(ла) — увійти</Button>
       </AuthShell>
     );
   }
