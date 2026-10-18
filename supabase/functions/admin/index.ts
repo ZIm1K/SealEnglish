@@ -225,6 +225,33 @@ Deno.serve(handle(async (req) => {
         const { data: taken } = await admin.from("profiles").select("id").eq("telegram_chat_id", lead.telegram_chat_id).maybeSingle();
         if (!taken) chat = lead.telegram_chat_id;
       }
+
+      // Link to an account that already exists (returning student, sibling, account made by hand) — no new password.
+      if (input.profile_id) {
+        const { data: student } = await admin.from("profiles").select("id, role, email, full_name, level, telegram_chat_id").eq("id", input.profile_id).maybeSingle();
+        if (!student) throw new HttpError(404, "Акаунт не знайдено");
+        if (student.role !== "student") throw new HttpError(422, "Прив'язати можна лише акаунт учня");
+        const patch: Record<string, unknown> = {};
+        if (input.level) patch.level = input.level;
+        const linkChat = chat && !student.telegram_chat_id ? chat : null;
+        if (linkChat) Object.assign(patch, { telegram_chat_id: linkChat, telegram_username: lead.telegram_username });
+        if (Object.keys(patch).length) {
+          const { error } = await admin.from("profiles").update(patch).eq("id", student.id);
+          if (error) throw error;
+        }
+        const groupIds: string[] = Array.isArray(input.group_ids) ? input.group_ids : [];
+        if (groupIds.length) await admin.from("group_members").upsert(groupIds.map((g) => ({ group_id: g, student_id: student.id })));
+        await admin.from("leads").update({ status: "won", converted_profile_id: student.id, manager_id: lead.manager_id ?? me.id }).eq("id", lead.id);
+        await admin.from("lead_events").insert({ lead_id: lead.id, kind: "status", from_status: lead.status, to_status: "won", actor_id: me.id, body: `Прив'язано до акаунта учня ${student.email ?? student.full_name}` });
+        if (linkChat) {
+          const site = await siteUrl();
+          await sendMessage(linkChat, `🎉 <b>Вітаємо в Seal English!</b>\n\nВаш Telegram підключено до кабінету <code>${student.email ?? ""}</code> — сюди приходитимуть нагадування про уроки.`, {
+            reply_markup: /^https:/.test(site) ? { inline_keyboard: [[{ text: "Увійти в кабінет →", url: `${site}/login/` }]] } : undefined,
+          });
+        }
+        return json({ id: student.id, email: student.email, linked: true, telegram_linked: !!linkChat });
+      }
+
       const acc = await createAccount(me, {
         email: input.email ?? lead.email,
         full_name: input.full_name ?? lead.name,

@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { AnimatePresence, motion } from "motion/react";
 import {
   CalendarPlus, Globe, LayoutGrid, List, Mail, MessageCircle, Phone, Plus, Search, Send, UserPlus, Video, X, XCircle, StickyNote,
-  UserRound, Clock, Target, GraduationCap, Pencil, FlaskConical,
+  UserRound, Clock, Target, GraduationCap, Pencil, FlaskConical, Link2,
 } from "lucide-react";
 import { PageHeader, EmptyState } from "@/components/app/AppShell";
 import { useMe } from "@/components/app/session";
@@ -22,7 +22,7 @@ import { Avatar, Badge, Skeleton } from "@/components/ui/misc";
 import { callFunction, supabase } from "@/lib/supabase";
 import { useGroups, usePeople } from "@/lib/queries";
 import { fmtDateTime } from "@/lib/dates";
-import { AGE_LABEL, LEAD_FLOW, LEAD_STATUS, LEVELS, type Lead, type LeadEvent, type LeadStatus, type AgeGroup } from "@/lib/types";
+import { AGE_LABEL, LEAD_FLOW, LEAD_STATUS, LEVELS, type Lead, type LeadEvent, type LeadStatus, type AgeGroup, type Profile } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const LEAD_SELECT =
@@ -478,25 +478,94 @@ function ConvertDialog({ lead, open, onOpenChange, onDone }: { lead: Lead; open:
   const [level, setLevel] = useState(lead.level_estimate ?? "");
   const [groupIds, setGroupIds] = useState<string[]>([]);
   const [creds, setCreds] = useState<{ email: string; password: string; name: string } | null>(null);
+  const [mode, setMode] = useState<"new" | "existing">("new");
+  const [query, setQuery] = useState("");
+  const [picked, setPicked] = useState<Profile | null>(null);
+  const { data: students = [] } = usePeople(["student"]);
+
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return students.filter((s) => s.full_name.toLowerCase().includes(q) || s.email?.toLowerCase().includes(q) || s.phone?.includes(q)).slice(0, 6);
+  }, [students, query]);
+  // Same email/phone/Telegram as the lead — most likely the account we're looking for.
+  const suggested = useMemo(() => {
+    const phone = lead.phone?.replace(/\D/g, "").slice(-9);
+    return students.filter((s) =>
+      (lead.email && s.email?.toLowerCase() === lead.email.toLowerCase()) ||
+      (phone && s.phone?.replace(/\D/g, "").endsWith(phone)) ||
+      (lead.telegram_chat_id && s.telegram_chat_id === lead.telegram_chat_id)).slice(0, 3);
+  }, [students, lead]);
 
   const convert = useMutation({
-    mutationFn: () => callFunction<{ email: string; password: string; telegram_linked: boolean }>("admin", { action: "convert_lead", lead_id: lead.id, email, full_name: name, level: level || null, group_ids: groupIds }),
+    mutationFn: () => callFunction<{ email: string; password?: string; telegram_linked: boolean; linked?: boolean }>("admin", {
+      action: "convert_lead", lead_id: lead.id, level: level || null, group_ids: groupIds,
+      ...(mode === "existing" ? { profile_id: picked?.id } : { email, full_name: name }),
+    }),
     onSuccess: (r) => {
-      toast.success("Учня створено 🎉", { description: r.telegram_linked ? "Дані для входу вже надіслано в Telegram" : undefined });
       onOpenChange(false);
-      setCreds({ email: r.email, password: r.password, name });
+      if (r.linked) {
+        toast.success("Заявку прив'язано до учня 🎉", { description: r.telegram_linked ? "Telegram підключено до його кабінету" : r.email });
+      } else {
+        toast.success("Учня створено 🎉", { description: r.telegram_linked ? "Дані для входу вже надіслано в Telegram" : undefined });
+        setCreds({ email: r.email, password: r.password!, name });
+      }
       onDone();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => {
+      if (mode === "new" && /вже існує/.test(e.message)) {
+        const existing = students.find((s) => s.email?.toLowerCase() === email.trim().toLowerCase());
+        setMode("existing");
+        setPicked(existing ?? null);
+        setQuery(existing ? "" : email);
+        toast.info("Акаунт з таким email вже є — можна прив'язати заявку до нього");
+        return;
+      }
+      toast.error(e.message);
+    },
   });
 
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent title="Зробити учнем" description="Створимо акаунт у кабінеті, заявка отримає статус «Став учнем»">
-          <form onSubmit={(e) => { e.preventDefault(); convert.mutate(); }} className="grid gap-5">
-            <Field label="Ім'я учня"><Input value={name} onChange={(e) => setName(e.target.value)} required /></Field>
-            <Field label="Email для входу" hint="це логін для входу в кабінет"><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="student@gmail.com" /></Field>
+        <DialogContent title="Зробити учнем" description={mode === "new" ? "Створимо акаунт у кабінеті, заявка отримає статус «Став учнем»" : "Прив'яжемо заявку до наявного акаунта учня — новий пароль не створюється"}>
+          <form onSubmit={(e) => { e.preventDefault(); if (mode === "existing" && !picked) { toast.error("Оберіть акаунт учня"); return; } convert.mutate(); }} className="grid gap-5">
+            <Segmented value={mode} onChange={setMode} className="w-full" options={[{ value: "new", label: "Новий акаунт" }, { value: "existing", label: "Існуючий акаунт" }]} />
+            {mode === "new" ? (
+              <>
+                <Field label="Ім'я учня"><Input value={name} onChange={(e) => setName(e.target.value)} required /></Field>
+                <Field label="Email для входу" hint="це логін для входу в кабінет"><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="student@gmail.com" /></Field>
+              </>
+            ) : picked ? (
+              <Field label="Акаунт учня">
+                <div className="flex items-center gap-3 rounded-2xl bg-seal-50 p-3 ring-1 ring-line">
+                  <Avatar name={picked.full_name} src={picked.avatar_url} />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-semibold">{picked.full_name}</div>
+                    <div className="truncate text-xs text-mute">{picked.email}{picked.level ? ` · ${picked.level}` : ""}</div>
+                  </div>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setPicked(null)}>Змінити</Button>
+                </div>
+              </Field>
+            ) : (
+              <Field label="Знайти учня" hint="ім'я, email або телефон">
+                <div className="grid gap-2">
+                  <Input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Анна або anna@gmail.com" />
+                  {(query.trim() ? matches : suggested).map((s) => (
+                    <button type="button" key={s.id} onClick={() => { setPicked(s); if (!level && s.level) setLevel(s.level); }}
+                      className="flex cursor-pointer items-center gap-3 rounded-2xl p-2 text-left transition hover:bg-seal-50">
+                      <Avatar name={s.full_name} src={s.avatar_url} size={32} />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium">{s.full_name}</div>
+                        <div className="truncate text-xs text-mute">{s.email ?? s.phone ?? "—"}</div>
+                      </div>
+                      {!query.trim() && <Badge tone="mint">збіг із заявкою</Badge>}
+                    </button>
+                  ))}
+                  {query.trim() && matches.length === 0 && <p className="px-2 text-sm text-mute">Нікого не знайдено</p>}
+                </div>
+              </Field>
+            )}
             <Field label="Рівень">
               <Select value={level} onChange={(e) => setLevel(e.target.value)}>
                 <option value="">—</option>
@@ -520,7 +589,7 @@ function ConvertDialog({ lead, open, onOpenChange, onDone }: { lead: Lead; open:
             )}
             <div className="flex justify-end gap-2">
               <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Скасувати</Button>
-              <Button type="submit" loading={convert.isPending}><UserPlus /> Створити акаунт</Button>
+              <Button type="submit" loading={convert.isPending}>{mode === "new" ? <><UserPlus /> Створити акаунт</> : <><Link2 /> Прив'язати</>}</Button>
             </div>
           </form>
         </DialogContent>
