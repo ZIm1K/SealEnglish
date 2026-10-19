@@ -373,6 +373,7 @@ interface SttStatus {
   key_hint: string | null;
   usd_per_hour: number;
   providers: { id: string; label: string; usd_per_hour: number }[];
+  diarize: { configured: boolean; key_hint: string | null; usd_per_hour: number };
 }
 
 /** Speech-to-text for lesson recordings (Claude doesn't take audio). Groq is the default: the cheapest Whisper. */
@@ -434,8 +435,60 @@ function SttBlock() {
           </Field>
           <Button type="submit" className="sm:col-span-2" disabled={!key} loading={save.isPending}><Plug /> {st.configured ? "Оновити ключ" : "Перевірити й зберегти"}</Button>
         </form>
+        {st.configured && <DiarizeBlock d={st.diarize} onChange={refetch} />}
       </div>
     </Card>
+  );
+}
+
+/** Optional: AssemblyAI splits the students' track of group lessons by voice (Whisper can't). */
+function DiarizeBlock({ d, onChange }: { d: SttStatus["diarize"]; onChange: () => void }) {
+  const [key, setKey] = useState("");
+  const ok = (msg: string) => () => {
+    toast.success(msg);
+    setKey("");
+    onChange();
+  };
+  const fail = (e: Error) => toast.error(e.message);
+  const save = useMutation({
+    mutationFn: () => callFunction("ai-transcribe", { action: "save_diarize_key", key }),
+    onSuccess: ok("Ключ перевірено — у групових уроках учні тепер розділятимуться за голосами"),
+    onError: fail,
+  });
+  const remove = useMutation({
+    mutationFn: () => callFunction("ai-transcribe", { action: "remove_diarize_key" }),
+    onSuccess: ok("Ключ видалено"),
+    onError: fail,
+  });
+  return (
+    <div className="grid gap-3 border-t border-line pt-4">
+      <div>
+        <div className="flex flex-wrap items-center gap-2 font-semibold">
+          Голоси учнів у групах (AssemblyAI) <Badge tone={d.configured ? "mint" : "gray"}>{d.configured ? "Увімкнено" : "Вимкнено"}</Badge>
+        </div>
+        <p className="mt-1 text-sm text-mute">
+          Використовується лише для групових уроків і лише для звуку учнів: замість одного «УЧНІ» в тексті будуть «УЧЕНЬ 1», «УЧЕНЬ 2»…, і ШІ
+          точніше підписує помилки іменами. Індивідуальні уроки й голос викладача, як і раніше, йдуть через Whisper. Якщо AssemblyAI недоступний,
+          розшифровка все одно спрацює — без розділення учнів.
+        </p>
+      </div>
+      {d.configured ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-2xl bg-violet-50 p-4 text-sm">
+          AssemblyAI · ключ <code>{d.key_hint}</code> · +${d.usd_per_hour.toFixed(2)} за годину групового уроку
+          <Button size="sm" variant="ghost" className="ml-auto text-red-600" onClick={() => confirm("Видалити ключ? Учні знову будуть одним «УЧНІ».") && remove.mutate()}><Link2Off /> Видалити</Button>
+        </div>
+      ) : (
+        <p className="text-sm">
+          Ключ: <a href="https://www.assemblyai.com/dashboard/api-keys" target="_blank" rel="noreferrer" className="font-semibold text-seal-700 underline">assemblyai.com → API Keys</a>
+        </p>
+      )}
+      <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+        <Field label={d.configured ? "Замінити ключ AssemblyAI" : "Ключ AssemblyAI"}>
+          <Input value={key} onChange={(e) => setKey(e.target.value)} type="password" autoComplete="off" />
+        </Field>
+        <Button type="submit" variant="outline" disabled={!key} loading={save.isPending}><Plug /> {d.configured ? "Оновити" : "Перевірити й увімкнути"}</Button>
+      </form>
+    </div>
   );
 }
 
