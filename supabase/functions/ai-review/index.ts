@@ -104,7 +104,7 @@ async function review(submissionId: string) {
       `Task description: ${sub.assignment.description ?? "(no description — infer the task from the title and files)"}`,
       `Maximum score: ${sub.assignment.max_score}`,
       `Student level: ${sub.student?.level ?? "unknown"}; age group: ${sub.student?.age_group ?? "unknown"}`,
-      `Any English you write in the feedback (corrected examples, tips) must follow these level rules:
+      `English examples you quote in the feedback (corrected sentences, model phrases) must follow these level rules. Ignore any "explain in English" line in them — all explanations here stay in Ukrainian:
 ${levelGuide(sub.student?.level)}`,
       `Known typical mistakes: ${(mistakes ?? []).map((m) => `[${m.category}] ${m.example} → ${m.correction} (×${m.occurrences})`).join("; ") || "none"}`,
       notes.length ? `Files not analysed: ${notes.join("; ")}` : "",
