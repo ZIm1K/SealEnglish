@@ -39,10 +39,21 @@ export interface StudentPayment {
   paid_on: string;
   amount: number;
   lessons: number;
+  /** null on payments entered before the method was recorded */
+  method: PaymentMethod | null;
   note: string | null;
   created_by: string | null;
   created_at: string;
 }
+
+export type PaymentMethod = "card" | "cash" | "transfer" | "other";
+
+export const PAYMENT_METHOD_LABEL: Record<PaymentMethod, string> = {
+  card: "Картка",
+  cash: "Готівка",
+  transfer: "Переказ на рахунок",
+  other: "Інше",
+};
 
 export interface StudentBalance {
   student_id: string;
@@ -56,6 +67,18 @@ export interface StudentBalance {
   price_per_lesson: number | null;
   last_paid_on: string | null;
   upcoming: number;
+}
+
+/** «Оплата уроків» → Учні: the all-time balance plus what was paid and held within one month. */
+export interface StudentBillingMonth extends StudentBalance {
+  full_name: string;
+  avatar_url: string | null;
+  age_group: AgeGroup | null;
+  is_active: boolean;
+  month_used: number;
+  month_paid_uah: number;
+  month_lessons_bought: number;
+  month_payments: number;
 }
 
 /** At this many paid lessons left the student is asked to pay for the next package. */
