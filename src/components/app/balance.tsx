@@ -7,13 +7,13 @@ import { toast } from "sonner";
 import { AlertTriangle, Phone, Plus, Send, Trash2, Wallet } from "lucide-react";
 import { useMe } from "@/components/app/session";
 import { Button } from "@/components/ui/button";
-import { Field, Input } from "@/components/ui/form";
+import { Field, Input, Select } from "@/components/ui/form";
 import { Badge, Card, CardHeader, Skeleton } from "@/components/ui/misc";
 import { SITE } from "@/content/site";
 import { humanizeError, supabase } from "@/lib/supabase";
 import { useStudentBalance } from "@/lib/queries";
 import { fmtDate } from "@/lib/dates";
-import { LOW_BALANCE_LESSONS, type Profile, type StudentBalance, type StudentPayment } from "@/lib/types";
+import { LOW_BALANCE_LESSONS, PAYMENT_METHOD_LABEL, type PaymentMethod, type Profile, type StudentBalance, type StudentPayment } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const money = new Intl.NumberFormat("uk-UA", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
@@ -130,6 +130,7 @@ export function PaymentsPanel({ student }: { student: Profile }) {
     qc.invalidateQueries({ queryKey: ["student-balances"] });
     qc.invalidateQueries({ queryKey: ["student-payments", student.id] });
     qc.invalidateQueries({ queryKey: ["people"] });
+    qc.invalidateQueries({ queryKey: ["student-billing"] });
   };
   const toggle = useMutation({
     mutationFn: async (on: boolean) => {
@@ -192,7 +193,7 @@ export function PaymentsPanel({ student }: { student: Profile }) {
                   <li key={p.id} className="flex items-center gap-3 p-3 text-sm">
                     <div className="min-w-0 flex-1">
                       <div className="font-semibold">{uah(p.amount)} · {p.lessons} {lessonsWord(p.lessons)} <span className="font-normal text-mute">({uah(round2(p.amount / p.lessons))} за урок)</span></div>
-                      <div className="truncate text-mute">{fmtDate(p.paid_on, "d MMMM yyyy")}{p.note ? ` · ${p.note}` : ""}</div>
+                      <div className="truncate text-mute">{[fmtDate(p.paid_on, "d MMMM yyyy"), p.method && PAYMENT_METHOD_LABEL[p.method], p.note].filter(Boolean).join(" · ")}</div>
                     </div>
                     <Button size="icon-sm" variant="ghost" className="text-mute hover:text-red-600" aria-label="Видалити оплату"
                       onClick={() => confirm(`Видалити оплату ${uah(p.amount)} від ${fmtDate(p.paid_on, "d MMMM")}? Баланс перерахується.`) && remove.mutate(p.id)}>
@@ -219,13 +220,14 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: str
 }
 
 /** Lessons × price − discount = amount; the amount can still be typed by hand. */
-function PaymentForm({ student, lastPrice, meId, onDone, onCancel }: { student: Profile; lastPrice: number | null; meId: string; onDone: () => void; onCancel: () => void }) {
+export function PaymentForm({ student, lastPrice, meId, onDone, onCancel }: { student: Profile; lastPrice: number | null; meId: string; onDone: () => void; onCancel: () => void }) {
   const [lessons, setLessons] = useState("10");
   const [price, setPrice] = useState("");
   const [discount, setDiscount] = useState("");
   // null = follow lessons × price − discount; a typed amount wins
   const [typed, setTyped] = useState<string | null>(null);
   const [paidOn, setPaidOn] = useState(today());
+  const [method, setMethod] = useState<PaymentMethod>("card");
   const [note, setNote] = useState("");
 
   const n = Math.round(Number(lessons));
@@ -242,7 +244,7 @@ function PaymentForm({ student, lastPrice, meId, onDone, onCancel }: { student: 
       if (!amount.trim() || !(sum >= 0)) throw new Error("Вкажіть суму оплати");
       const auto = `Пакет ${n} ${lessonsWord(n)}${d ? `, знижка ${d}%` : ""}`;
       const { error } = await supabase.from("student_payments").insert({
-        student_id: student.id, paid_on: paidOn, amount: sum, lessons: n, note: note.trim() || auto, created_by: meId,
+        student_id: student.id, paid_on: paidOn, amount: sum, lessons: n, method, note: note.trim() || auto, created_by: meId,
       });
       if (error) throw error;
     },
@@ -260,8 +262,13 @@ function PaymentForm({ student, lastPrice, meId, onDone, onCancel }: { student: 
       <div className="grid gap-4 sm:grid-cols-3">
         <Field label="Сплачено, грн"><Input inputMode="decimal" value={amount} onChange={(e) => setTyped(e.target.value)} required /></Field>
         <Field label="Дата оплати"><Input type="date" value={paidOn} onChange={(e) => setPaidOn(e.target.value)} required /></Field>
-        <Field label="Коментар" hint="необов'язково"><Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="готівка, картка…" /></Field>
+        <Field label="Спосіб оплати">
+          <Select value={method} onChange={(e) => setMethod(e.target.value as PaymentMethod)}>
+            {(Object.keys(PAYMENT_METHOD_LABEL) as PaymentMethod[]).map((m) => <option key={m} value={m}>{PAYMENT_METHOD_LABEL[m]}</option>)}
+          </Select>
+        </Field>
       </div>
+      <Field label="Коментар" hint="необов'язково"><Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="напр. оплатила мама, пакет на листопад" /></Field>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <span className="text-sm text-ink-soft">{perLesson != null && Number.isFinite(perLesson) ? <>Списуватиметься <b>{uah(perLesson)}</b> за урок</> : " "}</span>
         <div className="flex gap-2">

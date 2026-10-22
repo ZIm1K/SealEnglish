@@ -5,12 +5,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { addMonths, format, startOfMonth } from "date-fns";
 import { uk } from "date-fns/locale";
 import { toast } from "sonner";
-import { AlertTriangle, ChevronLeft, ChevronRight, Download, Settings2 } from "lucide-react";
+import { AlertTriangle, ChevronLeft, ChevronRight, Download, Plus, Settings2 } from "lucide-react";
 import { PageHeader, EmptyState } from "@/components/app/AppShell";
-import { useMe } from "@/components/app/session";
+import { useMe, isStaffRole } from "@/components/app/session";
+import { NewPaymentDialog, StudentBilling, useStudentBilling } from "@/components/app/student-billing";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/overlay";
-import { Field, Input } from "@/components/ui/form";
+import { Field, Input, Segmented } from "@/components/ui/form";
 import { Badge, Card, CardHeader, Skeleton } from "@/components/ui/misc";
 import { callFunction, supabase } from "@/lib/supabase";
 import { fmtDateTime } from "@/lib/dates";
@@ -58,16 +59,27 @@ const KIND_LABEL: Record<PayoutLine["line_kind"], string> = {
 const uah = (n: number) => `${Math.round(n).toLocaleString("uk-UA")} ₴`;
 const monthParam = (d: Date) => format(d, "yyyy-MM-01");
 
-/** FR-25: teacher pay = 180 + 30 × present students (group) or a fixed rate (individual, trial), from attendance. */
+type View = "students" | "teachers";
+
+/**
+ * FR-25: teacher pay = 180 + 30 × present students (group) or a fixed rate (individual, trial), from attendance.
+ * Staff also track student payments here: paid packages, lessons held per month and what is left.
+ */
 export default function PayoutsPage() {
   const me = useMe();
   const isAdmin = me.role === "admin";
+  const staff = isStaffRole(me.role);
+  // managers only see students; teachers only their own pay
+  const [view, setView] = useState<View>(staff ? "students" : "teachers");
   const [month, setMonth] = useState(() => startOfMonth(new Date()));
   const [open, setOpen] = useState<string | null>(null);
   const [editingRates, setEditingRates] = useState(false);
+  const [paying, setPaying] = useState(false);
+  const { data: billing = [], isLoading: billingLoading } = useStudentBilling(monthParam(month), staff);
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["payouts", monthParam(month)],
+    enabled: view === "teachers",
     queryFn: async () => {
       const { data, error } = await supabase.rpc("teacher_payouts", { p_month: monthParam(month) });
       if (error) throw error;
@@ -86,13 +98,21 @@ export default function PayoutsPage() {
   const selected = isAdmin ? open : me.id;
 
   const exportCsv = () => {
-    const header = ["Викладач", "Групових", "Індивідуальних", "Пробних", "Присутніх учнів", "Без відмітки", "Сума, грн"];
-    const lines = rows.map((r) => [r.teacher_name, r.lessons_group, r.lessons_individual, r.lessons_trial, r.students_present, r.unmarked, Math.round(Number(r.amount))]);
+    const header = view === "students"
+      ? ["Учень", "Оплачено за місяць, грн", "Куплено уроків за місяць", "Проведено за місяць", "Оплачено уроків усього", "Проведено усього", "Залишок уроків", "Баланс, грн"]
+      : ["Викладач", "Групових", "Індивідуальних", "Пробних", "Присутніх учнів", "Без відмітки", "Сума, грн"];
+    const lines = view === "students"
+      ? billing.filter((r) => r.is_active || r.month_used > 0 || r.month_payments > 0).map((r) => {
+          // unpaid students (lessons held, no payment yet) are exported too, so the minus shows
+          const tracked = r.enabled && (r.has_payments || r.lessons_used > 0);
+          return [r.full_name, r.month_paid_uah, r.month_lessons_bought, r.month_used, tracked ? r.lessons_paid : "", tracked ? r.lessons_used : "", tracked ? r.lessons_left : "", tracked ? r.balance_uah : ""];
+        })
+      : rows.map((r) => [r.teacher_name, r.lessons_group, r.lessons_individual, r.lessons_trial, r.students_present, r.unmarked, Math.round(Number(r.amount))]);
     const csv = [header, ...lines].map((l) => l.map((x) => `"${String(x).replace(/"/g, '""')}"`).join(";")).join("\n");
     const url = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }));
     const a = document.createElement("a");
     a.href = url;
-    a.download = `seal-english-payouts-${format(month, "yyyy-MM")}.csv`;
+    a.download = `seal-english-${view === "students" ? "student-payments" : "payouts"}-${format(month, "yyyy-MM")}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -101,27 +121,51 @@ export default function PayoutsPage() {
     <div className="grid gap-6">
       <PageHeader
         title="Оплата уроків"
-        description={isAdmin ? "Нарахування викладачам за проведені уроки на основі відвідуваності" : "Ваші проведені уроки та нарахування за місяць"}
-        actions={
+        description={
+          view === "students" ? "Оплати учнів, проведені уроки та скільки лишилось до кінця пакета"
+            : isAdmin ? "Нарахування викладачам за проведені уроки на основі відвідуваності"
+              : "Ваші проведені уроки та нарахування за місяць"
+        }
+        actions={view === "students" ? (
+          <>
+            {billing.length > 0 && <Button variant="outline" onClick={exportCsv}><Download /> CSV</Button>}
+            <Button variant="ocean" onClick={() => setPaying(true)}><Plus /> Внести оплату</Button>
+          </>
+        ) : (
           <>
             {isAdmin && <Button variant="outline" onClick={() => setEditingRates(true)}><Settings2 /> Ставки</Button>}
             {isAdmin && rows.length > 0 && <Button variant="outline" onClick={exportCsv}><Download /> CSV</Button>}
           </>
-        }
+        )}
       />
+
+      {isAdmin && (
+        <Segmented
+          label="Розділ"
+          className="justify-self-start"
+          value={view}
+          onChange={setView}
+          options={[
+            { value: "students", label: "Оплати учнів" },
+            { value: "teachers", label: "Нарахування викладачам" },
+          ]}
+        />
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="outline" size="icon" onClick={() => setMonth((m) => addMonths(m, -1))} aria-label="Попередній місяць"><ChevronLeft /></Button>
         <span className="min-w-40 text-center font-display font-semibold capitalize">{format(month, "LLLL yyyy", { locale: uk })}</span>
         <Button variant="outline" size="icon" onClick={() => setMonth((m) => addMonths(m, 1))} aria-label="Наступний місяць" disabled={month >= startOfMonth(new Date())}><ChevronRight /></Button>
-        {rates && (
+        {view === "teachers" && rates && (
           <span className="ml-auto text-xs text-mute">
             Група: {rates.group_base} + {rates.group_per_student} ₴ × присутніх · індивідуально {rates.individual} ₴ · пробний {rates.trial_individual} ₴ / {rates.trial_group_per_lead} ₴ за ліда в міні-групі
           </span>
         )}
       </div>
 
-      {isLoading ? (
+      {view === "students" ? (
+        <StudentBilling rows={billing} loading={billingLoading} />
+      ) : isLoading ? (
         <Skeleton className="h-48" />
       ) : rows.length === 0 ? (
         <EmptyState title="Проведених уроків немає" text="Урок потрапляє сюди, коли він відбувся (не скасований). Не забувайте відмічати відвідуваність." emotion="sleepy" />
@@ -177,6 +221,7 @@ export default function PayoutsPage() {
         </>
       )}
       {isAdmin && editingRates && rates && <RatesDialog rates={rates} onClose={() => setEditingRates(false)} />}
+      {staff && paying && <NewPaymentDialog rows={billing} onClose={() => setPaying(false)} />}
     </div>
   );
 }
